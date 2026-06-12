@@ -8,11 +8,8 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 find_package(SDL2 REQUIRED)
 include_directories(${SDL2_INCLUDE_DIRS})
 
-# Find SDL2_ttf via pkg-config
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(SDL2_TTF REQUIRED SDL2_ttf)
-
 # Find libwebsockets via pkg-config
+find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBWEBSOCKETS REQUIRED libwebsockets)
 
 # Find pthreads
@@ -31,14 +28,12 @@ add_executable(lanft ${SOURCES})
 
 target_include_directories(lanft PRIVATE
     ${SDL2_INCLUDE_DIRS}
-    ${SDL2_TTF_INCLUDE_DIRS}
     ${LIBWEBSOCKETS_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/src
 )
 
 target_link_libraries(lanft
     ${SDL2_LIBRARIES}
-    ${SDL2_TTF_LIBRARIES}
     ${LIBWEBSOCKETS_LIBRARIES}
     Threads::Threads
 )
