@@ -52,6 +52,7 @@ struct app_state {
     char send_target_ip[64];
     int  send_port;
     int  send_protocol;
+    bool send_is_dir;   /* true = select directory, false = select file */
     bool send_running;
     uint64_t send_progress_done;
     uint64_t send_progress_total;

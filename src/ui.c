@@ -418,9 +418,24 @@ static void render_send_page(SDL_Renderer *r, struct app_state *st)
     int y = 50;
 
     ui_draw_text(r, "File:", 20, y + 4, COLOR_TEXT);
-    ui_draw_rect(r, 80, y, W - 240, 28, COLOR_SURFACE);
+    ui_draw_rect(r, 70, y, W - 340, 28, COLOR_SURFACE);
     ui_draw_text(r, st->send_filepath[0] ? st->send_filepath : "Click Browse...",
-                 86, y + 4, st->send_filepath[0] ? COLOR_TEXT : COLOR_DIM);
+                 76, y + 4, st->send_filepath[0] ? COLOR_TEXT : COLOR_DIM);
+    /* Dir/File toggle */
+    {
+        SDL_Color tbg = st->send_is_dir ? COLOR_ACCENT : COLOR_SURFACE;
+        SDL_Color ttc = st->send_is_dir ? COLOR_BG : COLOR_TEXT;
+        ui_draw_rect(r, W - 260, y, 50, 28, tbg);
+        int tw, th; ui_text_size("Dir", &tw, &th);
+        ui_draw_text(r, "Dir", W - 260 + (50 - tw) / 2, y + (28 - th) / 2, ttc);
+    }
+    {
+        SDL_Color fbg = st->send_is_dir ? COLOR_SURFACE : COLOR_ACCENT;
+        SDL_Color ftc = st->send_is_dir ? COLOR_TEXT : COLOR_BG;
+        ui_draw_rect(r, W - 205, y, 50, 28, fbg);
+        int tw, th; ui_text_size("File", &tw, &th);
+        ui_draw_text(r, "File", W - 205 + (50 - tw) / 2, y + (28 - th) / 2, ftc);
+    }
     ui_button(r, "Browse", W - 150, y, 80, 28, 0, 0, false);
     y += 40;
 
@@ -742,8 +757,18 @@ bool ui_handle_event(SDL_Event *e, struct app_state *st)
             break;
 
         case TAB_SEND:
+            /* Dir/File toggle */
+            if (ui_in_rect(mx, my, st->window_w - 260, 50, 50, 28)) {
+                st->send_is_dir = true; return true;
+            }
+            if (ui_in_rect(mx, my, st->window_w - 205, 50, 50, 28)) {
+                st->send_is_dir = false; return true;
+            }
             if (ui_in_rect(mx, my, st->window_w - 150, 50, 80, 28)) {
-                zenity_launch(st, "Select File to Send", false, 1);
+                if (st->send_is_dir)
+                    zenity_launch(st, "Select Directory to Send", true, 1);
+                else
+                    zenity_launch(st, "Select File to Send", false, 1);
                 return true;
             }
             if (ui_in_rect(mx, my, 120, 90, 60, 28)) { st->send_protocol = 0; return true; }
