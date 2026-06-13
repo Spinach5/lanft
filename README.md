@@ -2,6 +2,7 @@
 [![Version](https://img.shields.io/badge/version-v1.0.0-blue.svg)](https://gitee.com/dzh258/lan-file-transfer/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Gitee stars](https://gitee.com/dzh258/lan-file-transfer/badge/star.svg?theme=dark)](https://gitee.com/dzh258/lan-file-transfer)
+[![GitHub stars](https://img.shields.io/github/stars/Spinach5/lan-file-transfer?style=social)](https://github.com/Spinach5/lan-file-transfer)
 
 English | [中文](./README_CN.md)
 
@@ -189,8 +190,8 @@ lanft --history
 |-------|------|---------|-------------|
 | `-h` | `--help` | — | Print help and exit |
 | `-v` | `--version` | — | Print version and exit |
-| `-S` | — | — | Shorthand for `--mode=S` (send) |
-| `-R` | — | — | Shorthand for `--mode=R` (receive) |
+| `-S` | `--mode=S` | *(required)* | Shorthand for `--mode=S` (send) |
+| `-R` | `--mode=R` | *(required)* | Shorthand for `--mode=R` (receive) |
 | | `--mode=S\|R` | *(required)* | Transfer mode |
 | | `--protocol=TCP\|UDP` | TCP | Transport protocol |
 | `-p` | `--port=NUM` | 9876 | Port number |
@@ -244,3 +245,6 @@ Sender   (client):  net_connect → send meta → read response → send data
 ## License
 
 MIT
+
+## Star History
+[![Star History Chart](https://api.star-history.com/chart?repos=Spinach5/lan-file-transfer&type=date&logscale&legend=top-left)](https://www.star-history.com/?repos=Spinach5%2Flan-file-transfer&type=date&logscale=&legend=top-left)

@@ -1,11 +1,13 @@
 # lanft — 局域网文件传输工具
-一款高速、稳定的局域网文件传输工具，同时支持图形界面（基于SDL2）和命令行模式。支持TCP/UDP协议、目录压缩、断点续传、设备扫描以及传输记录功能。
-
 [![Version](https://img.shields.io/badge/version-v1.0.0-blue.svg)](https://gitee.com/dzh258/lan-file-transfer/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Gitee stars](https://gitee.com/dzh258/lan-file-transfer/badge/star.svg?theme=dark)](https://gitee.com/dzh258/lan-file-transfer)
+[![GitHub stars](https://img.shields.io/github/stars/Spinach5/lan-file-transfer?style=social)](https://github.com/Spinach5/lan-file-transfer)
 
 [English](./README.md) | 中文
+
+一款高速、稳定的局域网文件传输工具，同时支持图形界面（基于SDL2）和命令行模式。支持TCP/UDP协议、目录压缩、断点续传、设备扫描以及传输记录功能。
+
 ---
 
 ## 功能特性
@@ -172,9 +174,9 @@ lanft --history
 |-------|------|---------|-------------|
 | `-h` | `--help` | — | 打印帮助信息并退出 |
 | `-v` | `--version` | — | 打印版本信息并退出 |
-| `-S` | — | — | 简写，等同于`--mode=S`（发送模式） |
-| `-R` | — | — | 简写，等同于`--mode=R`（接收模式） |
-| | `--mode=S\|R` | （必填） | 传输模式：发送 / 接收 |
+| `-S` | `--mode=S` | *（必填）* | 简写，等同于`--mode=S`（发送模式） |
+| `-R` | `--mode=R` | *（必填）*| 简写，等同于`--mode=R`（接收模式） |
+| | `--mode=S\|R` | *（必填）* | 传输模式：发送 / 接收 |
 | | `--protocol=TCP\|UDP` | TCP | 选择传输协议 |
 | `-p` | `--port=端口号` | 9876 | 指定通信端口 |
 | | `--address=IP地址` | `0.0.0.0` | 发送端填写接收IP；接收端填写监听IP |
@@ -220,3 +222,6 @@ lanft --history
 
 ## 开源协议
 MIT 许可证
+
+## 星折线图
+[![Star History Chart](https://api.star-history.com/chart?repos=Spinach5/lan-file-transfer&type=date&logscale&legend=top-left)](https://www.star-history.com/?repos=Spinach5%2Flan-file-transfer&type=date&logscale=&legend=top-left)
