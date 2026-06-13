@@ -553,7 +553,7 @@ void history_load(struct app_state *st)
 {
     st->history_count = 0;
     char path[512];
-    snprintf(path, sizeof(path), "%s/%s", getenv("HOME") ? getenv("HOME") : ".", "." HISTORY_FILE);
+    snprintf(path, sizeof(path), "./" HISTORY_FILE);
     FILE *fp = fopen(path, "r");
     if (!fp) return;
 
@@ -573,7 +573,7 @@ void history_load(struct app_state *st)
 void history_save(struct app_state *st)
 {
     char path[512];
-    snprintf(path, sizeof(path), "%s/%s", getenv("HOME") ? getenv("HOME") : ".", "." HISTORY_FILE);
+    snprintf(path, sizeof(path), "./" HISTORY_FILE);
     FILE *fp = fopen(path, "w");
     if (!fp) return;
 
