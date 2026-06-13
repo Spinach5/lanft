@@ -166,12 +166,12 @@ static int dir_walk(const char *base, const char *subdir,
     return 0;
 }
 
-static void tcp_send_file(struct net_context *nc, const char *filepath,
+static int tcp_send_file(struct net_context *nc, const char *filepath,
                           uint64_t resume_offset)
 {
     int fd = net_get_fd(nc);
     fprintf(stderr, "[SEND] tcp_send_file: fd=%d, file=%s\n", fd, filepath);
-    if (fd < 0) { fprintf(stderr, "[SEND] BAD FD!\n"); push_error("No socket"); return; }
+    if (fd < 0) { fprintf(stderr, "[SEND] BAD FD!\n"); push_error("No socket"); return -2; }
 
     /* Check if path is a directory */
     struct stat path_st;
@@ -189,7 +189,7 @@ static void tcp_send_file(struct net_context *nc, const char *filepath,
 
     if (is_dir) {
         dir_files = calloc(DIR_MAX_FILES, sizeof(struct dir_file));
-        if (!dir_files) { push_error("Out of memory"); return; }
+        if (!dir_files) { push_error("Out of memory"); return -2; }
         dir_walk(filepath, NULL, dir_files, &dir_count);
         /* Calculate total size */
         for (int i = 0; i < dir_count; i++)
@@ -198,7 +198,7 @@ static void tcp_send_file(struct net_context *nc, const char *filepath,
                 dir_count, (unsigned long)total);
     } else {
         FILE *fp = fopen(filepath, "rb");
-        if (!fp) { fprintf(stderr, "[SEND] CANNOT OPEN!\n"); push_error("Cannot open: %s", filepath); return; }
+        if (!fp) { fprintf(stderr, "[SEND] CANNOT OPEN!\n"); push_error("Cannot open: %s", filepath); return -2; }
         fseek(fp, 0, SEEK_END);
         total = (uint64_t)ftell(fp);
         fclose(fp);
@@ -220,7 +220,7 @@ static void tcp_send_file(struct net_context *nc, const char *filepath,
         fprintf(stderr, "[SEND] FAILED to send meta!\n");
         push_error("Failed to send file metadata");
         free(dir_files);
-        return;
+        return -1;  /* likely scanner probe */
     }
     fprintf(stderr, "[SEND] meta sent OK\n");
 
@@ -256,7 +256,7 @@ static void tcp_send_file(struct net_context *nc, const char *filepath,
         fprintf(stderr, "[SEND] already complete on receiver, done\n");
         push_xfer_done();
         free(dir_files);
-        return;
+        return 0;
     }
 
     uint64_t sent = 0;
@@ -276,7 +276,7 @@ static void tcp_send_file(struct net_context *nc, const char *filepath,
             if (!fp) {
                 push_error("Cannot open: %s", dir_files[i].path);
                 free(dir_files);
-                return;
+                return -2;
             }
 
             uint8_t buf[FT_TCP_CHUNK_SIZE];
@@ -290,7 +290,7 @@ static void tcp_send_file(struct net_context *nc, const char *filepath,
                     push_error("Send failed");
                     fclose(fp);
                     free(dir_files);
-                    return;
+                    return -2;
                 }
                 file_sent += n;
                 sent += n;
@@ -302,7 +302,7 @@ static void tcp_send_file(struct net_context *nc, const char *filepath,
     } else {
         /* Single file transfer */
         FILE *fp = fopen(filepath, "rb");
-        if (!fp) { push_error("Cannot open: %s", filepath); free(dir_files); return; }
+        if (!fp) { push_error("Cannot open: %s", filepath); free(dir_files); return -2; }
         fseek(fp, (long)resume_offset, SEEK_SET);
         sent = resume_offset;
 
@@ -317,7 +317,7 @@ static void tcp_send_file(struct net_context *nc, const char *filepath,
                            (unsigned long)sent, (unsigned long)total);
                 fclose(fp);
                 free(dir_files);
-                return;
+                return -2;
             }
             sent += n;
             fprintf(stderr, "[SEND] progress %lu/%lu\n", (unsigned long)sent, (unsigned long)total);
@@ -329,6 +329,7 @@ static void tcp_send_file(struct net_context *nc, const char *filepath,
     fprintf(stderr, "[SEND] transfer done, sent=%lu/%lu\n", (unsigned long)sent, (unsigned long)total);
     free(dir_files);
     if (sent >= total) push_xfer_done();
+    return (sent >= total) ? 0 : -2;
 }
 
 /* ── TCP receive with direct socket I/O ───────────────────── */
@@ -760,15 +761,24 @@ void transfer_send(struct net_context *nc, const char *filepath, int protocol)
 {
     fprintf(stderr, "[SEND] transfer_send start, proto=%d, file=%s\n", protocol, filepath);
     if (protocol == FT_PROTO_TCP) {
-        fprintf(stderr, "[SEND] calling net_accept...\n");
-        if (net_accept(nc) != 0) {
-            fprintf(stderr, "[SEND] net_accept FAILED\n");
-            push_error("Failed to accept client connection");
-            return;
+        /* Accept loop: scanner probes may trigger accept().
+           If handshake fails, re-accept for the real receiver. */
+        int attempt = 0;
+        while (attempt < 50) {
+            attempt++;
+            fprintf(stderr, "[SEND] calling net_accept... (attempt %d)\n", attempt);
+            if (net_accept(nc) != 0) {
+                fprintf(stderr, "[SEND] net_accept FAILED\n");
+                push_error("Failed to accept client connection");
+                return;
+            }
+            fprintf(stderr, "[SEND] net_accept OK, fd=%d\n", net_get_fd(nc));
+            int result = tcp_send_file(nc, filepath, 0);
+            if (result == 0) return;           /* success */
+            if (result == -1) continue;         /* scanner — retry */
+            return;                             /* real error — stop */
         }
-        fprintf(stderr, "[SEND] net_accept OK, fd=%d, calling tcp_send_file...\n", net_get_fd(nc));
-        tcp_send_file(nc, filepath, 0);
-        fprintf(stderr, "[SEND] tcp_send_file returned\n");
+        push_error("Too many scanner probes — no real receiver found");
     } else {
         udp_send_file(nc, filepath);
     }
