@@ -15,8 +15,11 @@ typedef void (*net_close_fn)(void *user);
    mode: FT_PROTO_TCP or FT_PROTO_UDP */
 struct net_context *net_create(int mode);
 
-/* TCP: start listening, return 0 on success */
+/* TCP: start listening on all interfaces, return 0 on success */
 int net_listen(struct net_context *nc, int port);
+
+/* TCP: start listening on specific IP, return 0 on success */
+int net_listen_ip(struct net_context *nc, const char *ip, int port);
 
 /* TCP: accept one client (blocks), returns 0 on success */
 int net_accept(struct net_context *nc);

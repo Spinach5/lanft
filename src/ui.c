@@ -481,11 +481,11 @@ static void render_send_page(SDL_Renderer *r, struct app_state *st)
     {
         char pbuf[16];
         snprintf(pbuf, sizeof(pbuf), "%d", st->send_port);
-        ui_draw_text(r, "IP:", 20, y + 4, COLOR_TEXT);
+        ui_draw_text(r, "Receiver IP:", 20, y + 4, COLOR_TEXT);
         ui_text_field(r, 55, y, 170, 28, st->send_target_ip,
                       st->active_input == 2 && !st->send_running,
                       st->active_input == 2 ? st->input_cursor : 0,
-                      "127.0.0.1", st->send_running);
+                      "receiver ip", st->send_running);
         ui_draw_text(r, "Port:", 235, y + 4, COLOR_TEXT);
         ui_text_field(r, 285, y, 70, 28, pbuf,
                       st->active_input == 5 && !st->send_running,
@@ -566,11 +566,11 @@ static void render_receive_page(SDL_Renderer *r, struct app_state *st)
     {
         char pbuf[16];
         snprintf(pbuf, sizeof(pbuf), "%d", st->recv_port);
-        ui_draw_text(r, "IP:", 20, y + 4, COLOR_TEXT);
+        ui_draw_text(r, "Listen IP:", 20, y + 4, COLOR_TEXT);
         ui_text_field(r, 55, y, 170, 28, st->recv_target_ip,
                       st->active_input == 4 && !st->recv_running,
                       st->active_input == 4 ? st->input_cursor : 0,
-                      "127.0.0.1", st->recv_running);
+                      "0.0.0.0", st->recv_running);
         ui_draw_text(r, "Port:", 235, y + 4, COLOR_TEXT);
         ui_text_field(r, 285, y, 70, 28, pbuf,
                       st->active_input == 6 && !st->recv_running,
@@ -793,10 +793,8 @@ bool ui_handle_event(SDL_Event *e, struct app_state *st)
                         st->selected_device = i;
                         strncpy(st->send_target_ip, st->devices[i].ip,
                                 sizeof(st->send_target_ip) - 1);
-                        strncpy(st->recv_target_ip, st->devices[i].ip,
-                                sizeof(st->recv_target_ip) - 1);
                         snprintf(st->status_text, sizeof(st->status_text),
-                                 "Selected %s", st->devices[i].ip);
+                                 "Selected %s — use as receiver IP", st->devices[i].ip);
                         return true;
                     }
                 }

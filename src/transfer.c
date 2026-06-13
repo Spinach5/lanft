@@ -694,30 +694,10 @@ void transfer_send(struct net_context *nc, const char *filepath, int protocol)
 {
     fprintf(stderr, "[SEND] transfer_send start, proto=%d, file=%s\n", protocol, filepath);
     if (protocol == FT_PROTO_TCP) {
-        /* Accept loop: scanner probes may trigger accept().
-           If handshake fails, re-accept for the real receiver. */
-        int attempt = 0;
-        while (attempt < 50) {
-            attempt++;
-            fprintf(stderr, "[SEND] calling net_accept... (attempt %d)\n", attempt);
-            int ar = net_accept(nc);
-            if (ar == -2) {
-                fprintf(stderr, "[SEND] net_accept cancelled\n");
-                push_xfer_done();  /* signal stopped state */
-                return;
-            }
-            if (ar != 0) {
-                fprintf(stderr, "[SEND] net_accept FAILED\n");
-                push_error("Failed to accept client connection");
-                return;
-            }
-            fprintf(stderr, "[SEND] net_accept OK, fd=%d\n", net_get_fd(nc));
-            int result = tcp_send_file(nc, filepath, 0);
-            if (result == 0) return;           /* success */
-            if (result == -1) continue;         /* scanner — retry */
-            return;                             /* real error — stop */
-        }
-        push_error("Too many scanner probes — no real receiver found");
+        /* Sender is client — already connected via main thread */
+        fprintf(stderr, "[SEND] connected, fd=%d, starting transfer...\n", net_get_fd(nc));
+        tcp_send_file(nc, filepath, 0);
+        fprintf(stderr, "[SEND] transfer done\n");
     } else {
         udp_send_file(nc, filepath);
     }
@@ -727,7 +707,20 @@ void transfer_recv(struct net_context *nc, const char *savepath, int protocol)
 {
     fprintf(stderr, "[RECV] transfer_recv start, proto=%d, save=%s\n", protocol, savepath);
     if (protocol == FT_PROTO_TCP) {
-        fprintf(stderr, "[RECV] fd=%d, calling tcp_recv_file...\n", net_get_fd(nc));
+        /* Receiver is server — accept sender connection */
+        fprintf(stderr, "[RECV] waiting for sender (net_accept)...\n");
+        int ar = net_accept(nc);
+        if (ar == -2) {
+            fprintf(stderr, "[RECV] net_accept cancelled\n");
+            push_xfer_done();
+            return;
+        }
+        if (ar != 0) {
+            fprintf(stderr, "[RECV] net_accept FAILED\n");
+            push_error("Failed to accept sender connection");
+            return;
+        }
+        fprintf(stderr, "[RECV] sender connected, fd=%d, starting receive...\n", net_get_fd(nc));
         tcp_recv_file(nc, savepath);
         fprintf(stderr, "[RECV] tcp_recv_file returned\n");
     } else {

@@ -165,6 +165,11 @@ struct net_context *net_create(int mode)
 
 int net_listen(struct net_context *nc, int port)
 {
+    return net_listen_ip(nc, "0.0.0.0", port);
+}
+
+int net_listen_ip(struct net_context *nc, const char *ip, int port)
+{
     nc->listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (nc->listen_fd < 0) return -1;
 
@@ -174,8 +179,12 @@ int net_listen(struct net_context *nc, int port)
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons(port);
+    if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1) {
+        close(nc->listen_fd);
+        nc->listen_fd = -1;
+        return -1;
+    }
 
     if (bind(nc->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close(nc->listen_fd);

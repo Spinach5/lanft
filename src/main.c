@@ -23,35 +23,21 @@ static bool transfer_stopped = false;
 typedef struct {
     struct net_context *nc;
     char filepath[1024];
+    char target_ip[64];
+    int  target_port;
     int protocol;
 } send_thread_args;
 
 static void *send_thread_func(void *arg)
 {
     send_thread_args *a = (send_thread_args *)arg;
-    transfer_send(a->nc, a->filepath, a->protocol);
-    net_destroy(a->nc);
-    free(a);
-    return NULL;
-}
-
-typedef struct {
-    struct net_context *nc;
-    char savepath[1024];
-    char target_ip[64];
-    int  target_port;
-    int protocol;
-} recv_thread_args;
-
-static void *recv_thread_func(void *arg)
-{
-    recv_thread_args *a = (recv_thread_args *)arg;
-    fprintf(stderr, "[RECV] thread started, connecting to %s:%d...\n",
+    /* Retry connect loop — sender is now client */
+    fprintf(stderr, "[SEND] thread started, connecting to receiver %s:%d...\n",
             a->target_ip, a->target_port);
     while (!net_is_cancelled(a->nc)) {
         if (a->protocol == FT_PROTO_TCP) {
             if (net_connect(a->nc, a->target_ip, a->target_port) == 0) {
-                fprintf(stderr, "[RECV] connected!\n");
+                fprintf(stderr, "[SEND] connected to receiver!\n");
                 break;
             }
         } else {
@@ -63,8 +49,24 @@ static void *recv_thread_func(void *arg)
         usleep(500000);
     }
     if (!net_is_cancelled(a->nc)) {
-        transfer_recv(a->nc, a->savepath, a->protocol);
+        transfer_send(a->nc, a->filepath, a->protocol);
     }
+    net_destroy(a->nc);
+    free(a);
+    return NULL;
+}
+
+typedef struct {
+    struct net_context *nc;
+    char savepath[1024];
+    int protocol;
+} recv_thread_args;
+
+static void *recv_thread_func(void *arg)
+{
+    recv_thread_args *a = (recv_thread_args *)arg;
+    fprintf(stderr, "[RECV] thread started, waiting for sender...\n");
+    transfer_recv(a->nc, a->savepath, a->protocol);
     net_destroy(a->nc);
     free(a);
     return NULL;
@@ -86,32 +88,11 @@ static void start_send(struct app_state *state)
         return;
     }
 
-    if (state->send_protocol == FT_PROTO_TCP) {
-        if (net_listen(nc, state->send_port) != 0) {
-            struct event_error *err = calloc(1, sizeof(*err));
-            snprintf(err->message, sizeof(err->message), "Failed to listen on port %d", state->send_port);
-            SDL_Event ev; SDL_memset(&ev, 0, sizeof(ev));
-            ev.type = USEREVENT_ERROR; ev.user.data1 = err;
-            SDL_PushEvent(&ev);
-            net_destroy(nc);
-            return;
-        }
-    } else {
-        if (net_udp_bind(nc, state->send_port) != 0) {
-            struct event_error *err = calloc(1, sizeof(*err));
-            snprintf(err->message, sizeof(err->message), "Failed to bind UDP port %d", state->send_port);
-            SDL_Event ev; SDL_memset(&ev, 0, sizeof(ev));
-            ev.type = USEREVENT_ERROR; ev.user.data1 = err;
-            SDL_PushEvent(&ev);
-            net_destroy(nc);
-            return;
-        }
-        net_udp_set_peer(nc, state->send_target_ip, state->send_port);
-    }
-
     send_thread_args *args = malloc(sizeof(*args));
     args->nc = nc;
     strncpy(args->filepath, state->send_filepath, sizeof(args->filepath) - 1);
+    strncpy(args->target_ip, state->send_target_ip, sizeof(args->target_ip) - 1);
+    args->target_port = state->send_port;
     args->protocol = state->send_protocol;
 
     active_nc = nc;
@@ -119,7 +100,8 @@ static void start_send(struct app_state *state)
     pthread_t tid;
     pthread_create(&tid, NULL, send_thread_func, args);
     pthread_detach(tid);
-    fprintf(stderr, "[MAIN] send thread spawned, port=%d\n", state->send_port);
+    fprintf(stderr, "[MAIN] send thread spawned, will connect to %s:%d\n",
+            state->send_target_ip, state->send_port);
 }
 
 static void start_recv(struct app_state *state)
@@ -134,11 +116,34 @@ static void start_recv(struct app_state *state)
         return;
     }
 
+    /* Receiver is server — listen for sender connection */
+    if (state->recv_protocol == FT_PROTO_TCP) {
+        /* Parse IP to listen on (0.0.0.0 = all interfaces) */
+        if (net_listen_ip(nc, state->recv_target_ip, state->recv_port) != 0) {
+            struct event_error *err = calloc(1, sizeof(*err));
+            snprintf(err->message, sizeof(err->message), "Failed to listen on %s:%d",
+                     state->recv_target_ip, state->recv_port);
+            SDL_Event ev; SDL_memset(&ev, 0, sizeof(ev));
+            ev.type = USEREVENT_ERROR; ev.user.data1 = err;
+            SDL_PushEvent(&ev);
+            net_destroy(nc);
+            return;
+        }
+    } else {
+        if (net_udp_bind(nc, state->recv_port) != 0) {
+            struct event_error *err = calloc(1, sizeof(*err));
+            snprintf(err->message, sizeof(err->message), "Failed to bind UDP port %d", state->recv_port);
+            SDL_Event ev; SDL_memset(&ev, 0, sizeof(ev));
+            ev.type = USEREVENT_ERROR; ev.user.data1 = err;
+            SDL_PushEvent(&ev);
+            net_destroy(nc);
+            return;
+        }
+    }
+
     recv_thread_args *args = malloc(sizeof(*args));
     args->nc = nc;
     strncpy(args->savepath, state->recv_savepath, sizeof(args->savepath) - 1);
-    strncpy(args->target_ip, state->recv_target_ip, sizeof(args->target_ip) - 1);
-    args->target_port = state->recv_port;
     args->protocol = state->recv_protocol;
 
     active_nc = nc;
@@ -146,7 +151,7 @@ static void start_recv(struct app_state *state)
     pthread_t tid;
     pthread_create(&tid, NULL, recv_thread_func, args);
     pthread_detach(tid);
-    fprintf(stderr, "[MAIN] recv thread spawned, will connect to %s:%d\n",
+    fprintf(stderr, "[MAIN] recv thread spawned, listening on %s:%d\n",
             state->recv_target_ip, state->recv_port);
 }
 
