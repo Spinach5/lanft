@@ -17,10 +17,12 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/select.h>
+#include <stdbool.h>
 
 #include <SDL2/SDL.h>
 
 #define SCANNER_THREADS 32
+#define MAX_SUBNETS     16
 
 static const char *reverse_dns(const char *ip)
 {
@@ -36,29 +38,38 @@ static const char *reverse_dns(const char *ip)
     return "";
 }
 
-static int get_local_subnet(char *subnet, size_t len)
+/* Collect ALL non-loopback /24 subnets from local interfaces */
+static int get_all_subnets(char subnets[][64], int max)
 {
     struct ifaddrs *ifaddr, *ifa;
     if (getifaddrs(&ifaddr) == -1) return -1;
 
-    int found = 0;
-    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+    int count = 0;
+    for (ifa = ifaddr; ifa != NULL && count < max; ifa = ifa->ifa_next) {
         if (!ifa->ifa_addr) continue;
         if (ifa->ifa_addr->sa_family != AF_INET) continue;
-        /* Skip loopback */
         if (strcmp(ifa->ifa_name, "lo") == 0) continue;
 
         struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
         uint32_t ip = ntohl(addr->sin_addr.s_addr);
-        snprintf(subnet, len, "%d.%d.%d",
+        char subnet[64];
+        snprintf(subnet, sizeof(subnet), "%d.%d.%d",
                  (ip >> 24) & 0xFF,
                  (ip >> 16) & 0xFF,
                  (ip >> 8) & 0xFF);
-        found = 1;
-        break;
+
+        /* Skip duplicates */
+        bool dup = false;
+        for (int i = 0; i < count; i++) {
+            if (strcmp(subnets[i], subnet) == 0) { dup = true; break; }
+        }
+        if (!dup) {
+            strncpy(subnets[count], subnet, 63);
+            count++;
+        }
     }
     freeifaddrs(ifaddr);
-    return found ? 0 : -1;
+    return count;
 }
 
 typedef struct {
@@ -114,7 +125,7 @@ static void *scan_ip_thread(void *arg)
 
                 SDL_Event event;
                 SDL_memset(&event, 0, sizeof(event));
-                event.type = SDL_USEREVENT + 1;  /* USEREVENT_SCAN_FOUND */
+                event.type = SDL_USEREVENT + 1;
                 event.user.data1 = evt;
                 SDL_PushEvent(&event);
             }
@@ -124,22 +135,9 @@ static void *scan_ip_thread(void *arg)
     return NULL;
 }
 
-/* The real scan logic — runs in a worker thread */
-static void scanner_run(uint16_t port)
+/* Scan one /24 subnet */
+static void scan_subnet(const char *subnet, uint16_t port)
 {
-    char subnet[64];
-    if (get_local_subnet(subnet, sizeof(subnet)) != 0) {
-        struct event_error *err = calloc(1, sizeof(*err));
-        snprintf(err->message, sizeof(err->message),
-                 "Cannot determine local subnet");
-        SDL_Event event;
-        SDL_memset(&event, 0, sizeof(event));
-        event.type = SDL_USEREVENT + 5;  /* USEREVENT_ERROR */
-        event.user.data1 = err;
-        SDL_PushEvent(&event);
-        return;
-    }
-
     atomic_uint counter;
     atomic_init(&counter, 1);
 
@@ -155,6 +153,30 @@ static void scanner_run(uint16_t port)
     for (int i = 0; i < SCANNER_THREADS; i++) {
         pthread_join(threads[i], NULL);
     }
+}
+
+/* The real scan logic — runs in a worker thread, scans ALL subnets */
+static void scanner_run(uint16_t port)
+{
+    char subnets[MAX_SUBNETS][64];
+    int subnet_count = get_all_subnets(subnets, MAX_SUBNETS);
+
+    if (subnet_count <= 0) {
+        struct event_error *err = calloc(1, sizeof(*err));
+        snprintf(err->message, sizeof(err->message),
+                 "Cannot determine local subnets");
+        SDL_Event event;
+        SDL_memset(&event, 0, sizeof(event));
+        event.type = SDL_USEREVENT + 5;
+        event.user.data1 = err;
+        SDL_PushEvent(&event);
+        return;
+    }
+
+    /* Scan each subnet */
+    for (int s = 0; s < subnet_count; s++) {
+        scan_subnet(subnets[s], port);
+    }
 
     /* All done */
     struct event_scan_done *done = calloc(1, sizeof(*done));
@@ -162,7 +184,7 @@ static void scanner_run(uint16_t port)
 
     SDL_Event event;
     SDL_memset(&event, 0, sizeof(event));
-    event.type = SDL_USEREVENT + 2;  /* USEREVENT_SCAN_DONE */
+    event.type = SDL_USEREVENT + 2;
     event.user.data1 = done;
     SDL_PushEvent(&event);
 }
