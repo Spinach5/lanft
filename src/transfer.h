@@ -5,6 +5,15 @@
 
 struct net_context;
 
+/* Progress callbacks — set by GUI or CLI before transfer */
+typedef void (*transfer_progress_fn)(uint64_t done, uint64_t total);
+typedef void (*transfer_error_fn)(const char *msg);
+typedef void (*transfer_done_fn)(void);
+
+void transfer_set_callbacks(transfer_progress_fn prog,
+                            transfer_error_fn err,
+                            transfer_done_fn done);
+
 /* Send a file over the network.
    nc must already be connected/listening.
    Runs the transfer loop — call from a worker thread. */

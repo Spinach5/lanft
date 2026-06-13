@@ -16,6 +16,21 @@
 #include <archive_entry.h>
 #include <SDL2/SDL.h>
 
+/* ── Callbacks ─────────────────────────────────────────────── */
+
+static transfer_progress_fn g_prog_cb = NULL;
+static transfer_error_fn    g_err_cb  = NULL;
+static transfer_done_fn     g_done_cb = NULL;
+
+void transfer_set_callbacks(transfer_progress_fn prog,
+                            transfer_error_fn err,
+                            transfer_done_fn done)
+{
+    g_prog_cb = prog;
+    g_err_cb  = err;
+    g_done_cb = done;
+}
+
 /* ── Helpers ───────────────────────────────────────────────── */
 
 static void push_event(int code, void *data)
@@ -29,17 +44,21 @@ static void push_event(int code, void *data)
 
 static void push_error(const char *fmt, ...)
 {
-    struct event_error *err = calloc(1, sizeof(*err));
-    if (!err) return;
+    char buf[512];
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(err->message, sizeof(err->message), fmt, ap);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
+    if (g_err_cb) { g_err_cb(buf); return; }
+    struct event_error *err = calloc(1, sizeof(*err));
+    if (!err) return;
+    strncpy(err->message, buf, sizeof(err->message) - 1);
     push_event(SDL_USEREVENT + 5, err);
 }
 
 static void push_progress(uint64_t done, uint64_t total)
 {
+    if (g_prog_cb) { g_prog_cb(done, total); return; }
     struct event_progress *p = calloc(1, sizeof(*p));
     if (!p) return;
     p->bytes_done = done;
@@ -49,6 +68,7 @@ static void push_progress(uint64_t done, uint64_t total)
 
 static void push_xfer_done(void)
 {
+    if (g_done_cb) { g_done_cb(); return; }
     push_event(SDL_USEREVENT + 4, NULL);
 }
 

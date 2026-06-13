@@ -24,6 +24,7 @@ set(SOURCES
     src/scanner.c
     src/transfer.c
     src/ui.c
+    src/cli.c
 )
 
 add_executable(lanft ${SOURCES})

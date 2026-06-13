@@ -159,10 +159,44 @@ static void start_recv(struct app_state *state)
    Main
    ═══════════════════════════════════════════════════════════ */
 
+/* CLI entry point (cli.c) */
+int cli_main(int argc, char **argv);
+
+/* Default SDL callbacks for GUI mode */
+static void gui_progress(uint64_t done, uint64_t total)
+{
+    struct event_progress *p = calloc(1, sizeof(*p));
+    if (!p) return;
+    p->bytes_done = done;
+    p->bytes_total = total;
+    SDL_Event ev; SDL_memset(&ev, 0, sizeof(ev));
+    ev.type = USEREVENT_PROGRESS; ev.user.data1 = p;
+    SDL_PushEvent(&ev);
+}
+
+static void gui_error(const char *msg)
+{
+    struct event_error *e = calloc(1, sizeof(*e));
+    if (!e) return;
+    strncpy(e->message, msg, sizeof(e->message) - 1);
+    SDL_Event ev; SDL_memset(&ev, 0, sizeof(ev));
+    ev.type = USEREVENT_ERROR; ev.user.data1 = e;
+    SDL_PushEvent(&ev);
+}
+
+static void gui_done(void)
+{
+    SDL_Event ev; SDL_memset(&ev, 0, sizeof(ev));
+    ev.type = USEREVENT_XFER_DONE;
+    SDL_PushEvent(&ev);
+}
+
 int main(int argc, char **argv)
 {
-    (void)argc;
-    (void)argv;
+    /* CLI mode: any args → run CLI, no SDL */
+    if (argc > 1) {
+        return cli_main(argc, argv);
+    }
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -194,6 +228,9 @@ int main(int argc, char **argv)
         SDL_Quit();
         return 1;
     }
+
+    /* Set GUI callbacks to push SDL events */
+    transfer_set_callbacks(gui_progress, gui_error, gui_done);
 
     /* Init app state */
     struct app_state state;
