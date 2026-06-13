@@ -205,6 +205,7 @@ int main(int argc, char **argv)
     state.scan_port = FT_DEFAULT_PORT;
     state.send_port = FT_DEFAULT_PORT;
     state.recv_port = FT_DEFAULT_PORT;
+    strncpy(state.recv_target_ip, "0.0.0.0", sizeof(state.recv_target_ip) - 1);
     state.send_protocol = FT_PROTO_TCP;
     state.recv_protocol = FT_PROTO_TCP;
     strncpy(state.status_text, "Ready — select a tab to begin",
