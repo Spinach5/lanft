@@ -72,6 +72,27 @@ static int send_meta(struct net_context *nc, const char *filename,
 
 /* ── TCP Send ──────────────────────────────────────────────── */
 
+/* ── Meta response receiver (used by sender to get resume_offset) ── */
+
+struct meta_resp_state {
+    struct ft_meta_resp resp;
+    size_t pos;
+    bool done;
+};
+
+static void meta_resp_rx_cb(void *user, const void *data, size_t len)
+{
+    struct meta_resp_state *st = (struct meta_resp_state *)user;
+    if (!st || st->done) return;
+    size_t to_copy = len;
+    size_t remaining = sizeof(struct ft_meta_resp) - st->pos;
+    if (to_copy > remaining) to_copy = remaining;
+    memcpy((uint8_t *)&st->resp + st->pos, data, to_copy);
+    st->pos += to_copy;
+    if (st->pos >= sizeof(struct ft_meta_resp))
+        st->done = true;
+}
+
 static void tcp_send_file(struct net_context *nc, const char *filepath,
                           uint64_t resume_offset)
 {
@@ -87,17 +108,42 @@ static void tcp_send_file(struct net_context *nc, const char *filepath,
     const char *fname = strrchr(filepath, '/');
     if (fname) fname++; else fname = filepath;
 
+    /* Set up RX callback to capture the meta response */
+    struct meta_resp_state mrs;
+    memset(&mrs, 0, sizeof(mrs));
+    net_set_rx_cb(nc, meta_resp_rx_cb, &mrs);
+
     if (send_meta(nc, fname, total, FT_PROTO_TCP) != 0) {
         push_error("Failed to send file metadata");
         fclose(fp);
         return;
     }
 
-    /* Let meta be sent via lws service loop */
-    for (int i = 0; i < 20; i++) net_service(nc, 50);
+    /* Wait for meta response from receiver (with timeout) */
+    {
+        int timeout = 0;
+        while (!mrs.done && net_is_connected(nc) && timeout < 200) {
+            net_service(nc, 50);
+            timeout++;
+        }
+
+        if (mrs.done && mrs.resp.magic == FT_MAGIC) {
+            resume_offset = mrs.resp.resume_offset;
+        }
+    }
+
+    /* If receiver already has the complete file, skip transfer */
+    if (resume_offset >= total) {
+        push_xfer_done();
+        fclose(fp);
+        return;
+    }
 
     fseek(fp, (long)resume_offset, SEEK_SET);
     uint64_t sent = resume_offset;
+
+    /* Restore RX callback to NULL for data phase (sender doesn't need RX during send) */
+    net_set_rx_cb(nc, NULL, NULL);
 
     uint8_t buf[FT_TCP_CHUNK_SIZE];
     while (sent < total && net_is_connected(nc)) {
@@ -493,6 +539,11 @@ static void udp_recv_file(struct net_context *nc, const char *savepath)
 void transfer_send(struct net_context *nc, const char *filepath, int protocol)
 {
     if (protocol == FT_PROTO_TCP) {
+        /* Sender is server — wait for receiver to connect */
+        if (net_accept(nc) != 0) {
+            push_error("Failed to accept client connection");
+            return;
+        }
         tcp_send_file(nc, filepath, 0);
     } else {
         udp_send_file(nc, filepath);
