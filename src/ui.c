@@ -681,7 +681,20 @@ static void render_history_page(SDL_Renderer *r, struct app_state *st)
         SDL_Color c = (e->status == 0) ? COLOR_TEXT : (e->status == 1 ? COLOR_ERROR : COLOR_DIM);
 
         char buf[64];
-        ui_draw_text(r, e->name, col_x[0], ry + 3, c);
+        /* Truncate long names with ... */
+        {
+            char name_trunc[32];
+            int max_w = col_x[1] - col_x[0] - 10;
+            int char_w = FONT_W + 1;
+            int max_chars = max_w / char_w;
+            if (max_chars < 4) max_chars = 4;
+            if ((int)strlen(e->name) > max_chars) {
+                snprintf(name_trunc, sizeof(name_trunc), "%.*s...", max_chars - 3, e->name);
+                ui_draw_text(r, name_trunc, col_x[0], ry + 3, c);
+            } else {
+                ui_draw_text(r, e->name, col_x[0], ry + 3, c);
+            }
+        }
         ui_draw_text(r, e->start_time, col_x[1], ry + 3, c);
         ui_draw_text(r, e->end_time, col_x[2], ry + 3, c);
         snprintf(buf, sizeof(buf), "%lu", (unsigned long)e->duration_ms);
