@@ -20,9 +20,9 @@ license: "MIT"
 
 # ── Dependencies ──────────────────────────────────────────────
 depends:
-  - libwebsockets
-  - libarchive
-  - libsdl2
+  # - libwebsockets-dev
+  # - libarchive-dev
+  # - libsdl2-dev
 
 recommends:
   - git
@@ -51,7 +51,4 @@ contents:
 # ── Scripts ───────────────────────────────────────────────────
 # Create log dir with sticky permissions on install
 scripts:
-  postinstall: |
-    #!/bin/sh
-    chmod 755 /var/log/lanft 2>/dev/null || true
-    echo "lanft installed. Run 'lanft --help' to get started."
+  postinstall: ./scripts/postinstall.sh
