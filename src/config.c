@@ -172,6 +172,36 @@ static void apply_toml_table(struct lanft_config *cfg, toml_datum_t table)
 
 /* ── Load: layered config ──────────────────────────────────── */
 
+/* Create all parent directories for a file path (like mkdir -p).
+   Modifies pathbuf temporarily but restores it. */
+static void mkdir_parents(char *pathbuf)
+{
+    char *slash = strrchr(pathbuf, '/');
+#ifdef _WIN32
+    char *bslash = strrchr(pathbuf, '\\');
+    if (bslash > slash) slash = bslash;
+#endif
+    if (!slash) return;
+    *slash = '\0';
+    for (char *p = pathbuf; *p; p++) {
+        if ((*p == '/' || *p == '\\') && p > pathbuf) {
+            char saved = *p; *p = '\0';
+#ifdef _WIN32
+            mkdir(pathbuf);
+#else
+            mkdir(pathbuf, 0755);
+#endif
+            *p = saved;
+        }
+    }
+#ifdef _WIN32
+    mkdir(pathbuf);
+#else
+    mkdir(pathbuf, 0755);
+#endif
+    *slash = '/';  /* restore */
+}
+
 int config_load(struct lanft_config *cfg)
 {
     config_set_defaults(cfg);
@@ -180,9 +210,9 @@ int config_load(struct lanft_config *cfg)
     toml_result_t sys_res = toml_parse_file_ex(config_system_path());
     if (sys_res.ok) {
         apply_toml_table(cfg, sys_res.toptab);
-        toml_free(sys_res);
         fprintf(stderr, "[config] loaded system config: %s\n", config_system_path());
     }
+    toml_free(sys_res);
     /* Missing or parse error → silently skip */
 
     /* ── Layer 2: User config (~/.config/lanft/config.toml) ── */
@@ -197,30 +227,7 @@ int config_load(struct lanft_config *cfg)
             /* Create parent directory */
             char dirbuf[512];
             strncpy(dirbuf, user_path, sizeof(dirbuf) - 1);
-            char *slash = strrchr(dirbuf, '/');
-#ifdef _WIN32
-            char *bslash = strrchr(dirbuf, '\\');
-            if (bslash > slash) slash = bslash;
-#endif
-            if (slash) {
-                *slash = '\0';
-                for (char *p = dirbuf; *p; p++) {
-                    if ((*p == '/' || *p == '\\') && p > dirbuf) {
-                        char saved = *p; *p = '\0';
-#ifdef _WIN32
-                        mkdir(dirbuf);
-#else
-                        mkdir(dirbuf, 0755);
-#endif
-                        *p = saved;
-                    }
-                }
-#ifdef _WIN32
-                mkdir(dirbuf);
-#else
-                mkdir(dirbuf, 0755);
-#endif
-            }
+            mkdir_parents(dirbuf);
 
             FILE *fdst = fopen(user_path, "w");
             if (fdst) {
@@ -241,8 +248,8 @@ int config_load(struct lanft_config *cfg)
     toml_result_t user_res = toml_parse_file_ex(user_path);
     if (user_res.ok) {
         apply_toml_table(cfg, user_res.toptab);
-        toml_free(user_res);
     }
+    toml_free(user_res);
     /* Parse error → already have built-in + system, just skip */
 
     return 0;
@@ -255,6 +262,7 @@ int config_load_file(struct lanft_config *cfg, const char *path)
     toml_result_t res = toml_parse_file_ex(path);
     if (!res.ok) {
         fprintf(stderr, "Warning: failed to parse config: %s\n", path);
+        toml_free(res);
         return -1;
     }
     apply_toml_table(cfg, res.toptab);
@@ -272,30 +280,7 @@ int config_save(const struct lanft_config *cfg)
     /* Create parent directory */
     char dirbuf[512];
     strncpy(dirbuf, path, sizeof(dirbuf) - 1);
-    char *slash = strrchr(dirbuf, '/');
-#ifdef _WIN32
-    char *bslash = strrchr(dirbuf, '\\');
-    if (bslash > slash) slash = bslash;
-#endif
-    if (slash) {
-        *slash = '\0';
-        for (char *p = dirbuf; *p; p++) {
-            if ((*p == '/' || *p == '\\') && p > dirbuf) {
-                char saved = *p; *p = '\0';
-#ifdef _WIN32
-                mkdir(dirbuf);
-#else
-                mkdir(dirbuf, 0755);
-#endif
-                *p = saved;
-            }
-        }
-#ifdef _WIN32
-        mkdir(dirbuf);
-#else
-        mkdir(dirbuf, 0755);
-#endif
-    }
+    mkdir_parents(dirbuf);
 
     FILE *fp = fopen(path, "w");
     if (!fp) {
