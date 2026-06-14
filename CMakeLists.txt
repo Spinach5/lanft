@@ -28,6 +28,8 @@ set(SOURCES
     src/network.c
     src/transfer.c
     src/cli.c
+    src/config.c
+    src/tomlc17/tomlc17.c
 )
 
 if(BUILD_GUI)
