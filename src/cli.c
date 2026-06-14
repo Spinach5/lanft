@@ -277,25 +277,40 @@ int cli_main(int argc, char **argv)
         print_help(argv[0]);
         return 1;
     }
-    if (optind >= argc) {
-        fprintf(stderr, "Error: missing PATH argument\n\n");
-        print_help(argv[0]);
-        return 1;
-    }
-    strncpy(g_cli_path, argv[optind], sizeof(g_cli_path) - 1);
 
-    /* Expand ~ in save_dir for receive mode */
-    const char *expanded_save = config_expand_path(cfg.save_dir);
+    /* Determine the path: CLI positional arg takes priority.
+       If no arg given, fall back to config save_dir. */
+    const char *work_path;
+    if (optind < argc) {
+        strncpy(g_cli_path, argv[optind], sizeof(g_cli_path) - 1);
+        work_path = g_cli_path;
+    } else {
+        work_path = config_expand_path(cfg.save_dir);
+    }
 
     struct stat path_st;
     if (cfg.mode == 0) {
-        if (stat(g_cli_path, &path_st) != 0) {
-            fprintf(stderr, "Error: file/directory not found: %s\n", g_cli_path);
+        /* Send: positional arg is required */
+        if (optind >= argc) {
+            fprintf(stderr, "Error: missing PATH argument\n\n");
+            print_help(argv[0]);
+            return 1;
+        }
+        if (stat(work_path, &path_st) != 0) {
+            fprintf(stderr, "Error: file/directory not found: %s\n", work_path);
             return 1;
         }
     } else {
-        if (stat(expanded_save, &path_st) != 0 || !S_ISDIR(path_st.st_mode)) {
-            fprintf(stderr, "Error: save directory not found: %s\n", expanded_save);
+        /* Receive: use work_path as save directory.
+           If it doesn't exist, try to create it. */
+        if (stat(work_path, &path_st) != 0) {
+            fprintf(stderr, "Directory '%s' not found, creating...\n", work_path);
+            if (mkdir(work_path, 0755) != 0) {
+                fprintf(stderr, "Error: failed to create directory: %s\n", work_path);
+                return 1;
+            }
+        } else if (!S_ISDIR(path_st.st_mode)) {
+            fprintf(stderr, "Error: not a directory: %s\n", work_path);
             return 1;
         }
     }
@@ -378,7 +393,7 @@ int cli_main(int argc, char **argv)
         cli_start_ms = now_ms();
         cli_ret = 1;
         fprintf(stderr, "[%d] Waiting for sender...\n", transfer_count);
-        transfer_recv(nc, expanded_save, cfg.protocol);
+        transfer_recv(nc, work_path, cfg.protocol);
         net_destroy(nc);
 
         if (cli_ret != 0) {
