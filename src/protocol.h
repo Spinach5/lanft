@@ -14,8 +14,10 @@
 #define FT_MAX_FILENAME   256
 
 /* Protocol type */
+#ifndef FT_PROTO_TCP
 #define FT_PROTO_TCP  0
 #define FT_PROTO_UDP  1
+#endif
 
 /* Meta handshake: sender → receiver */
 struct ft_meta {
