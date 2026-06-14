@@ -14,6 +14,7 @@
 #include <pthread.h>
 #include <SDL2/SDL.h>
 #include "config.h"
+#include "log.h"
 
 /* ═══════════════════════════════════════════════════════════
    Transfer thread wrappers
@@ -35,12 +36,12 @@ static void *send_thread_func(void *arg)
 {
     send_thread_args *a = (send_thread_args *)arg;
     /* Retry connect loop — sender is now client */
-    fprintf(stderr, "[SEND] thread started, connecting to receiver %s:%d...\n",
+    log_write("[SEND] thread started, connecting to receiver %s:%d...\n",
             a->target_ip, a->target_port);
     while (!net_is_cancelled(a->nc)) {
         if (a->protocol == FT_PROTO_TCP) {
             if (net_connect(a->nc, a->target_ip, a->target_port) == 0) {
-                fprintf(stderr, "[SEND] connected to receiver!\n");
+                log_write("[SEND] connected to receiver!\n");
                 break;
             }
         } else {
@@ -77,7 +78,7 @@ static void *recv_thread_func(void *arg)
     int proto   = a->protocol;
     free(a);
 
-    fprintf(stderr, "[RECV] persistent listener started on %s:%d\n", ip, port);
+    log_write("[RECV] persistent listener started on %s:%d\n", ip, port);
 
     while (!recv_stop_requested) {
         struct net_context *nc = net_create(proto);
@@ -119,17 +120,17 @@ static void *recv_thread_func(void *arg)
         }
 
         active_nc = nc;
-        fprintf(stderr, "[RECV] waiting for sender (transfer #%d)...\n",
+        log_write("[RECV] waiting for sender (transfer #%d)...\n",
                 recv_stop_requested ? -1 : 0);
         transfer_recv(nc, savepath, proto);
         net_destroy(nc);
         active_nc = NULL;
 
         if (recv_stop_requested) break;
-        fprintf(stderr, "[RECV] ready for next transfer...\n");
+        log_write("[RECV] ready for next transfer...\n");
     }
 
-    fprintf(stderr, "[RECV] listener stopped\n");
+    log_write("[RECV] listener stopped\n");
     return NULL;
 }
 
@@ -161,7 +162,7 @@ static void start_send(struct app_state *state)
     pthread_t tid;
     pthread_create(&tid, NULL, send_thread_func, args);
     pthread_detach(tid);
-    fprintf(stderr, "[MAIN] send thread spawned, will connect to %s:%d\n",
+    log_write("[MAIN] send thread spawned, will connect to %s:%d\n",
             state->send_target_ip, state->send_port);
 }
 
@@ -179,7 +180,7 @@ static void start_recv(struct app_state *state)
     pthread_t tid;
     pthread_create(&tid, NULL, recv_thread_func, args);
     pthread_detach(tid);
-    fprintf(stderr, "[MAIN] persistent recv thread spawned on %s:%d\n",
+    log_write("[MAIN] persistent recv thread spawned on %s:%d\n",
             state->recv_target_ip, state->recv_port);
 }
 
@@ -268,7 +269,7 @@ int main(int argc, char **argv)
     }
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
+        log_write("SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
 
@@ -278,7 +279,7 @@ int main(int argc, char **argv)
         800, 600,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
     if (!window) {
-        fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
+        log_write("SDL_CreateWindow: %s\n", SDL_GetError());
         SDL_Quit();
         return 1;
     }
@@ -310,6 +311,7 @@ int main(int argc, char **argv)
     state.selected_device = -1;
     state.active_input = 0;
     config_load(&state.gui_cfg);
+    log_init(&state.gui_cfg);
     state.scan_port = state.gui_cfg.port;
     state.send_port = state.gui_cfg.port;
     state.recv_port = state.gui_cfg.port;
@@ -556,7 +558,7 @@ int main(int argc, char **argv)
         }
 
         if (state.send_running && !pending_send && state.send_progress_total == 0) {
-            fprintf(stderr, "[MAIN] Starting send: file=%s, target=%s, port=%d, proto=%d\n",
+            log_write("[MAIN] Starting send: file=%s, target=%s, port=%d, proto=%d\n",
                     state.send_filepath, state.send_target_ip, state.send_port, state.send_protocol);
             pending_send = true;
             /* Record history entry */
@@ -576,7 +578,7 @@ int main(int argc, char **argv)
         if (!state.send_running) pending_send = false;
 
         if (state.recv_running && !pending_recv && state.recv_progress_total == 0) {
-            fprintf(stderr, "[MAIN] Starting recv: save=%s, target=%s, port=%d, proto=%d\n",
+            log_write("[MAIN] Starting recv: save=%s, target=%s, port=%d, proto=%d\n",
                     state.recv_savepath, state.recv_target_ip, state.recv_port, state.recv_protocol);
             pending_recv = true;
             /* Record history entry */
@@ -604,6 +606,7 @@ int main(int argc, char **argv)
 
     history_save(&state);
     config_save(&state.gui_cfg);
+    log_close();
     ui_cleanup();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);

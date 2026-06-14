@@ -1,6 +1,7 @@
 #include "scanner.h"
 #include "protocol.h"
 #include "compat.h"
+#include "log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -201,7 +202,7 @@ static void scanner_run(uint16_t port)
 
     /* Scan each subnet */
     for (int s = 0; s < subnet_count; s++) {
-        fprintf(stderr, "[SCAN] scanning subnet %s.x (port %d)...\n", subnets[s], port);
+        log_write("[SCAN] scanning subnet %s.x (port %d)...\n", subnets[s], port);
         scan_subnet(subnets[s], port);
     }
 

@@ -1,5 +1,6 @@
 #include "config.h"
 #include "compat.h"
+#include "log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -246,7 +247,7 @@ int config_load(struct lanft_config *cfg)
     toml_result_t sys_res = toml_parse_file_ex(config_system_path());
     if (sys_res.ok) {
         apply_toml_table(cfg, sys_res.toptab);
-        fprintf(stderr, "[config] loaded system config: %s\n", config_system_path());
+        log_write("[config] loaded system config: %s\n", config_system_path());
     }
     toml_free(sys_res);
     /* Missing or parse error → silently skip */
@@ -272,11 +273,11 @@ int config_load(struct lanft_config *cfg)
                 while ((n = fread(buf, 1, sizeof(buf), fsrc)) > 0)
                     fwrite(buf, 1, n, fdst);
                 fclose(fdst);
-                fprintf(stderr, "[config] created initial user config: %s\n", user_path);
+                log_write("[config] created initial user config: %s\n", user_path);
             }
             fclose(fsrc);
         } else {
-            fprintf(stderr, "[config] no config files found, using built-in defaults\n");
+            log_write("[config] no config files found, using built-in defaults\n");
         }
     }
 
@@ -297,13 +298,13 @@ int config_load_file(struct lanft_config *cfg, const char *path)
 {
     toml_result_t res = toml_parse_file_ex(path);
     if (!res.ok) {
-        fprintf(stderr, "Warning: failed to parse config: %s\n", path);
+        log_write("Warning: failed to parse config: %s\n", path);
         toml_free(res);
         return -1;
     }
     apply_toml_table(cfg, res.toptab);
     toml_free(res);
-    fprintf(stderr, "[config] loaded: %s\n", path);
+    log_write("[config] loaded: %s\n", path);
     return 0;
 }
 
@@ -320,7 +321,7 @@ int config_save(const struct lanft_config *cfg)
 
     FILE *fp = fopen(path, "w");
     if (!fp) {
-        fprintf(stderr, "Error: cannot write config to %s: %s\n", path, strerror(errno));
+        log_write("Error: cannot write config to %s: %s\n", path, strerror(errno));
         return -1;
     }
 
@@ -356,7 +357,7 @@ int config_save(const struct lanft_config *cfg)
     fprintf(fp, "send_bandwidth_limit = %d\n", cfg->send_bandwidth_limit);
 
     fclose(fp);
-    fprintf(stderr, "[config] saved to %s\n", path);
+    log_write("[config] saved to %s\n", path);
     return 0;
 }
 

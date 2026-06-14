@@ -29,6 +29,7 @@ set(SOURCES
     src/transfer.c
     src/cli.c
     src/config.c
+    src/log.c
     src/tomlc17/tomlc17.c
 )
 

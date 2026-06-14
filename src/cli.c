@@ -3,6 +3,7 @@
 #include "transfer.h"
 #include "compat.h"
 #include "config.h"
+#include "log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,46 +32,46 @@ static void cli_progress(uint64_t done, uint64_t total)
     int pct = (int)(done * 100 / total);
     int bar_w = 30;
     int filled = bar_w * pct / 100;
-    fprintf(stderr, "\r  [");
+    log_write("\r  [");
     for (int i = 0; i < bar_w; i++)
         fputc(i < filled ? '=' : (i == filled ? '>' : ' '), stderr);
-    fprintf(stderr, "] %3d%%  ", pct);
+    log_write("] %3d%%  ", pct);
 
     const char *units[] = {"B","KB","MB","GB"};
     int ui = 0; double ds = done;   while (ds >= 1024 && ui < 3) { ds /= 1024; ui++; }
     int uj = 0; double ts = total;  while (ts >= 1024 && uj < 3) { ts /= 1024; uj++; }
-    fprintf(stderr, "%.1f%s / %.1f%s", ds, units[ui], ts, units[uj]);
+    log_write("%.1f%s / %.1f%s", ds, units[ui], ts, units[uj]);
 
     uint64_t elapsed = now_ms() - cli_start_ms;
     if (elapsed > 0) {
         double speed = (double)done / ((double)elapsed / 1000.0);
         int sk = 0; while (speed >= 1024 && sk < 3) { speed /= 1024; sk++; }
-        fprintf(stderr, "  %.1f%s/s", speed, units[sk]);
+        log_write("  %.1f%s/s", speed, units[sk]);
     }
     fflush(stderr);
 }
 
 static void cli_error(const char *msg)
 {
-    fprintf(stderr, "\nError: %s\n", msg);
+    log_write("\nError: %s\n", msg);
     cli_ret = 1;
 }
 
 static void cli_done(void)
 {
     uint64_t elapsed = now_ms() - cli_start_ms;
-    fprintf(stderr, "\n\nTransfer complete!\n");
-    fprintf(stderr, "  Size:     ");
+    log_write("\n\nTransfer complete!\n");
+    log_write("  Size:     ");
     const char *units[] = {"B","KB","MB","GB"};
     int u = 0; double s = cli_total;
     while (s >= 1024 && u < 3) { s /= 1024; u++; }
-    fprintf(stderr, "%.1f %s\n", s, units[u]);
-    fprintf(stderr, "  Duration: %.1fs\n", elapsed / 1000.0);
+    log_write("%.1f %s\n", s, units[u]);
+    log_write("  Duration: %.1fs\n", elapsed / 1000.0);
     if (elapsed > 0 && cli_total > 0) {
         double speed = (double)cli_total / ((double)elapsed / 1000.0);
         int sk = 0;
         while (speed >= 1024 && sk < 3) { speed /= 1024; sk++; }
-        fprintf(stderr, "  Speed:    %.1f %s/s\n", speed, units[sk]);
+        log_write("  Speed:    %.1f %s/s\n", speed, units[sk]);
     }
     cli_ret = 0;
 }
@@ -82,21 +83,21 @@ static int cli_accept_cb(const char *ip, const char *hostname,
     const char *units[] = {"B","KB","MB","GB"};
     int u = 0; double s = (double)size;
     while (s >= 1024 && u < 3) { s /= 1024; u++; }
-    fprintf(stderr, "\n── Incoming Transfer ──\n");
-    fprintf(stderr, "From: %s (%s)\n", ip, hostname[0] ? hostname : "unknown");
-    fprintf(stderr, "File: %s\n", filename);
-    fprintf(stderr, "Size: %.1f %s\n", s, units[u]);
-    fprintf(stderr, "Accept? [y/N]: ");
+    log_write("\n── Incoming Transfer ──\n");
+    log_write("From: %s (%s)\n", ip, hostname[0] ? hostname : "unknown");
+    log_write("File: %s\n", filename);
+    log_write("Size: %.1f %s\n", s, units[u]);
+    log_write("Accept? [y/N]: ");
     fflush(stderr);
 
     char answer[16];
     if (fgets(answer, sizeof(answer), stdin)) {
         if (answer[0] == 'y' || answer[0] == 'Y') {
-            fprintf(stderr, "Accepted.\n\n");
+            log_write("Accepted.\n\n");
             return 1;
         }
     }
-    fprintf(stderr, "Rejected.\n\n");
+    log_write("Rejected.\n\n");
     return 0;
 }
 
@@ -124,6 +125,7 @@ static void print_help(const char *prog)
     printf("  --no-progress         Disable progress bar\n");
     printf("  --no-discovery        Disable LAN discovery\n");
     printf("  --log-level=LEVEL     debug | info | warn | error (default: info)\n");
+    printf("  --log-file=PATH       Log file path (dir/ for date-based naming)\n");
     printf("  --bandwidth-limit=N   Send bandwidth limit in bytes/sec (0=unlimited)\n");
     printf("  --auto-accept         Auto-accept incoming files\n");
     printf("  --no-auto-accept      Prompt before accepting (default)\n");
@@ -143,6 +145,7 @@ int cli_main(int argc, char **argv)
 {
     struct lanft_config cfg;
     config_load(&cfg);
+    log_init(&cfg);
     g_cli_path[0] = '\0';
 
     static struct option long_opts[] = {
@@ -166,6 +169,7 @@ int cli_main(int argc, char **argv)
         {"bandwidth-limit",required_argument, 0, 2009},
         {"auto-accept",    no_argument,       0, 2010},
         {"no-auto-accept", no_argument,       0, 2011},
+        {"log-file",       required_argument, 0, 2013},
         {"config",         required_argument, 0, 2012},
         {0, 0, 0, 0}
     };
@@ -191,8 +195,8 @@ int cli_main(int argc, char **argv)
             /* --history: handled after the switch */
             break;
         case 1004:
-            fprintf(stderr, "GUI mode is not available in this build.\n");
-            fprintf(stderr, "Rebuild with: cmake .. -DBUILD_GUI=ON\n");
+            log_write("GUI mode is not available in this build.\n");
+            log_write("Rebuild with: cmake .. -DBUILD_GUI=ON\n");
             return 1;
         case 2000: /* --save-config */
             config_save(&cfg);
@@ -229,6 +233,9 @@ int cli_main(int argc, char **argv)
             break;
         case 2011: /* --no-auto-accept */
             cfg.auto_accept = false;
+            break;
+        case 2013: /* --log-file */
+            strncpy(cfg.log_file, optarg, sizeof(cfg.log_file) - 1);
             break;
         case 2012: /* --config */
             config_load_file(&cfg, optarg);
@@ -271,9 +278,12 @@ int cli_main(int argc, char **argv)
         }
     }
 
+    /* Re-init log with CLI-overridden config (e.g. --log-file) */
+    log_init(&cfg);
+
     /* ── Validation ──────────────────────────────────────── */
     if (cfg.mode < 0) {
-        fprintf(stderr, "Error: --mode is required (S=send, R=receive)\n\n");
+        log_write("Error: --mode is required (S=send, R=receive)\n\n");
         print_help(argv[0]);
         return 1;
     }
@@ -292,25 +302,25 @@ int cli_main(int argc, char **argv)
     if (cfg.mode == 0) {
         /* Send: positional arg is required */
         if (optind >= argc) {
-            fprintf(stderr, "Error: missing PATH argument\n\n");
+            log_write("Error: missing PATH argument\n\n");
             print_help(argv[0]);
             return 1;
         }
         if (stat(work_path, &path_st) != 0) {
-            fprintf(stderr, "Error: file/directory not found: %s\n", work_path);
+            log_write("Error: file/directory not found: %s\n", work_path);
             return 1;
         }
     } else {
         /* Receive: use work_path as save directory.
            If it doesn't exist, try to create it. */
         if (stat(work_path, &path_st) != 0) {
-            fprintf(stderr, "Directory '%s' not found, creating...\n", work_path);
+            log_write("Directory '%s' not found, creating...\n", work_path);
             if (mkdir(work_path, 0755) != 0) {
-                fprintf(stderr, "Error: failed to create directory: %s\n", work_path);
+                log_write("Error: failed to create directory: %s\n", work_path);
                 return 1;
             }
         } else if (!S_ISDIR(path_st.st_mode)) {
-            fprintf(stderr, "Error: not a directory: %s\n", work_path);
+            log_write("Error: not a directory: %s\n", work_path);
             return 1;
         }
     }
@@ -333,11 +343,11 @@ int cli_main(int argc, char **argv)
         /* Send */
         struct net_context *nc = net_create(cfg.protocol);
         if (!nc) {
-            fprintf(stderr, "Error: failed to create network context\n");
+            log_write("Error: failed to create network context\n");
             return 1;
         }
 
-        fprintf(stderr, "Connecting to %s:%d...\n", cfg.address, cfg.port);
+        log_write("Connecting to %s:%d...\n", cfg.address, cfg.port);
         cli_start_ms = now_ms();
         int tries = 0;
         while (tries < 60) {
@@ -350,43 +360,43 @@ int cli_main(int argc, char **argv)
                 }
             }
             tries++;
-            fprintf(stderr, "\r  Retrying... (%d/60)", tries);
+            log_write("\r  Retrying... (%d/60)", tries);
             fflush(stderr);
             sleep(1);
         }
         if (tries >= 60) {
-            fprintf(stderr, "\nError: failed to connect to %s:%d\n",
+            log_write("\nError: failed to connect to %s:%d\n",
                     cfg.address, cfg.port);
             net_destroy(nc);
             return 1;
         }
-        fprintf(stderr, "\nConnected! Sending %s...\n", g_cli_path);
+        log_write("\nConnected! Sending %s...\n", g_cli_path);
         transfer_send(nc, g_cli_path, cfg.protocol);
         net_destroy(nc);
         return cli_ret;
     }
 
     /* Receive — persistent listener */
-    fprintf(stderr, "Persistent listener on %s:%d (Ctrl+C to stop)\n\n",
+    log_write("Persistent listener on %s:%d (Ctrl+C to stop)\n\n",
             cfg.address, cfg.port);
     int transfer_count = 0;
     while (1) {
         struct net_context *nc = net_create(cfg.protocol);
         if (!nc) {
-            fprintf(stderr, "Error: failed to create network context\n");
+            log_write("Error: failed to create network context\n");
             return 1;
         }
 
         if (cfg.protocol == FT_PROTO_TCP) {
             if (net_listen_ip(nc, cfg.address, cfg.port) != 0) {
-                fprintf(stderr, "Error: failed to listen on %s:%d\n",
+                log_write("Error: failed to listen on %s:%d\n",
                         cfg.address, cfg.port);
                 net_destroy(nc);
                 return 1;
             }
         } else {
             if (net_udp_bind(nc, cfg.port) != 0) {
-                fprintf(stderr, "Error: failed to bind UDP port %d\n", cfg.port);
+                log_write("Error: failed to bind UDP port %d\n", cfg.port);
                 net_destroy(nc);
                 return 1;
             }
@@ -395,15 +405,15 @@ int cli_main(int argc, char **argv)
         transfer_count++;
         cli_start_ms = now_ms();
         cli_ret = 1;
-        fprintf(stderr, "[%d] Waiting for sender...\n", transfer_count);
+        log_write("[%d] Waiting for sender...\n", transfer_count);
         transfer_recv(nc, work_path, cfg.protocol);
         net_destroy(nc);
 
         if (cli_ret != 0) {
-            fprintf(stderr, "\n[%d] Transfer failed, continuing to listen...\n\n",
+            log_write("\n[%d] Transfer failed, continuing to listen...\n\n",
                     transfer_count);
         } else {
-            fprintf(stderr, "\n[%d] Done, listening for next...\n\n",
+            log_write("\n[%d] Done, listening for next...\n\n",
                     transfer_count);
         }
     }
