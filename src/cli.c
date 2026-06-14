@@ -2,6 +2,7 @@
 #include "network.h"
 #include "transfer.h"
 #include "compat.h"
+#include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,21 +12,11 @@
 
 #define CLI_VERSION "lanft v1.0"
 
-/* ── Config ────────────────────────────────────────────────── */
-
-struct cli_config {
-    int  protocol;
-    int  mode;         /* 0=S, 1=R */
-    int  port;
-    char address[64];
-    char path[1024];
-    bool show_history;
-};
-
 /* ── Progress bar ──────────────────────────────────────────── */
 
 static uint64_t cli_start_ms;
 static uint64_t cli_total;
+static char g_cli_path[1024];
 static int cli_ret = 1;
 
 static uint64_t now_ms(void) {
@@ -100,7 +91,20 @@ static void print_help(const char *prog)
     printf("  --protocol=TCP|UDP    Protocol (default: TCP)\n");
     printf("  -p, --port=NUM        Port number (default: 9876)\n");
     printf("  --address=IP          Target IP (send: required; recv: default 0.0.0.0)\n");
-    printf("  --history             Show transfer history\n\n");
+    printf("  --history             Show transfer history\n");
+    printf("  --save-dir=DIR        Save directory (default: ~/Downloads)\n");
+    printf("  --buffer-size=N       Transfer buffer size (default: 65536)\n");
+    printf("  --timeout=N           Timeout in seconds (default: 30)\n");
+    printf("  --overwrite=POLICY    rename | overwrite | skip (default: rename)\n");
+    printf("  --no-progress         Disable progress bar\n");
+    printf("  --no-discovery        Disable LAN discovery\n");
+    printf("  --log-level=LEVEL     debug | info | warn | error (default: info)\n");
+    printf("  --bandwidth-limit=N   Send bandwidth limit in bytes/sec (0=unlimited)\n");
+    printf("  --auto-accept         Auto-accept incoming files\n");
+    printf("  --no-auto-accept      Prompt before accepting (default)\n");
+    printf("  --show-config         Print effective config and exit\n");
+    printf("  --save-config         Save current settings to user config\n");
+    printf("  --config=PATH         Use custom config file\n\n");
     printf("Examples:\n");
     printf("  Send:   %s --mode=S --address=192.168.1.100 ./file.pdf\n", prog);
     printf("  Send:   %s -S -p 1234 ./video.mp4\n", prog);
@@ -112,22 +116,32 @@ static void print_help(const char *prog)
 
 int cli_main(int argc, char **argv)
 {
-    struct cli_config cfg;
-    memset(&cfg, 0, sizeof(cfg));
-    cfg.protocol = FT_PROTO_TCP;
-    cfg.port = FT_DEFAULT_PORT;
-    strncpy(cfg.address, "0.0.0.0", sizeof(cfg.address) - 1);
-    cfg.mode = -1;
+    struct lanft_config cfg;
+    config_load(&cfg);
+    g_cli_path[0] = '\0';
 
     static struct option long_opts[] = {
-        {"help",     no_argument,       0, 'h'},
-        {"version",  no_argument,       0, 'v'},
-        {"gui",      no_argument,       0, 1004},
-        {"protocol", required_argument, 0, 1000},
-        {"mode",     required_argument, 0, 1001},
-        {"port",     required_argument, 0, 'p'},
-        {"address",  required_argument, 0, 1002},
-        {"history",  no_argument,       0, 1003},
+        {"help",           no_argument,       0, 'h'},
+        {"version",        no_argument,       0, 'v'},
+        {"gui",            no_argument,       0, 1004},
+        {"protocol",       required_argument, 0, 1000},
+        {"mode",           required_argument, 0, 1001},
+        {"port",           required_argument, 0, 'p'},
+        {"address",        required_argument, 0, 1002},
+        {"history",        no_argument,       0, 1003},
+        {"save-config",    no_argument,       0, 2000},
+        {"show-config",    no_argument,       0, 2001},
+        {"save-dir",       required_argument, 0, 2002},
+        {"buffer-size",    required_argument, 0, 2003},
+        {"timeout",        required_argument, 0, 2004},
+        {"overwrite",      required_argument, 0, 2005},
+        {"no-progress",    no_argument,       0, 2006},
+        {"no-discovery",   no_argument,       0, 2007},
+        {"log-level",      required_argument, 0, 2008},
+        {"bandwidth-limit",required_argument, 0, 2009},
+        {"auto-accept",    no_argument,       0, 2010},
+        {"no-auto-accept", no_argument,       0, 2011},
+        {"config",         required_argument, 0, 2012},
         {0, 0, 0, 0}
     };
 
@@ -149,12 +163,51 @@ int cli_main(int argc, char **argv)
             strncpy(cfg.address, optarg, sizeof(cfg.address) - 1);
             break;
         case 1003:
-            cfg.show_history = true;
+            /* --history: handled after the switch */
             break;
         case 1004:
             fprintf(stderr, "GUI mode is not available in this build.\n");
             fprintf(stderr, "Rebuild with: cmake .. -DBUILD_GUI=ON\n");
             return 1;
+        case 2000: /* --save-config */
+            config_save(&cfg);
+            return 0;
+        case 2001: /* --show-config */
+            config_print(&cfg);
+            return 0;
+        case 2002: /* --save-dir */
+            strncpy(cfg.save_dir, optarg, sizeof(cfg.save_dir) - 1);
+            break;
+        case 2003: /* --buffer-size */
+            cfg.buffer_size = atoi(optarg);
+            break;
+        case 2004: /* --timeout */
+            cfg.timeout_seconds = atoi(optarg);
+            break;
+        case 2005: /* --overwrite */
+            strncpy(cfg.overwrite_policy, optarg, sizeof(cfg.overwrite_policy) - 1);
+            break;
+        case 2006: /* --no-progress */
+            cfg.show_progress = false;
+            break;
+        case 2007: /* --no-discovery */
+            cfg.discovery_enabled = false;
+            break;
+        case 2008: /* --log-level */
+            strncpy(cfg.log_level, optarg, sizeof(cfg.log_level) - 1);
+            break;
+        case 2009: /* --bandwidth-limit */
+            cfg.send_bandwidth_limit = atoi(optarg);
+            break;
+        case 2010: /* --auto-accept */
+            cfg.auto_accept = true;
+            break;
+        case 2011: /* --no-auto-accept */
+            cfg.auto_accept = false;
+            break;
+        case 2012: /* --config */
+            config_load_file(&cfg, optarg);
+            break;
         default:
             print_help(argv[0]);
             return 1;
@@ -162,26 +215,35 @@ int cli_main(int argc, char **argv)
     }
 
     /* ── History ─────────────────────────────────────────── */
-    if (cfg.show_history) {
-        char path[512];
-        snprintf(path, sizeof(path), "./lanft_history.dat");
-        FILE *fp = fopen(path, "r");
-        if (!fp) { printf("No history found.\n"); return 0; }
-        char line[1024];
-        printf("%-20s %8s %8s %8s %4s %5s %5s %3s %s\n",
-               "Name","Start","End","Dur(ms)","Kind","Port","St","%","Speed");
-        while (fgets(line, sizeof(line), fp)) {
-            char name[256]="",st[32]="",et[32]="";
-            unsigned long dur=0,spd=0; int k=0,port=0,stt=0,prog=0;
-            sscanf(line,"%255[^|]|%31[^|]|%31[^|]|%lu|%d|%d|%d|%d|%lu",
-                   name, st, et, &dur, &k, &port, &stt, &prog, &spd);
-            printf("%-20s %8s %8s %8lu %4s %5d %5s %3d%% %lu\n",
-                   name, st, et, dur,
-                   k==0?"SEND":"RECV", port,
-                   stt==0?"OK":(stt==1?"BAD":"STOP"), prog, spd);
+    {
+        bool show_history = false;
+        for (int i = 1; i < argc; i++) {
+            if (strcmp(argv[i], "--history") == 0) {
+                show_history = true;
+                break;
+            }
         }
-        fclose(fp);
-        return 0;
+        if (show_history) {
+            char path[512];
+            snprintf(path, sizeof(path), "./lanft_history.dat");
+            FILE *fp = fopen(path, "r");
+            if (!fp) { printf("No history found.\n"); return 0; }
+            char line[1024];
+            printf("%-20s %8s %8s %8s %4s %5s %5s %3s %s\n",
+                   "Name","Start","End","Dur(ms)","Kind","Port","St","%","Speed");
+            while (fgets(line, sizeof(line), fp)) {
+                char name[256]="",st[32]="",et[32]="";
+                unsigned long dur=0,spd=0; int k=0,port=0,stt=0,prog=0;
+                sscanf(line,"%255[^|]|%31[^|]|%31[^|]|%lu|%d|%d|%d|%d|%lu",
+                       name, st, et, &dur, &k, &port, &stt, &prog, &spd);
+                printf("%-20s %8s %8s %8lu %4s %5d %5s %3d%% %lu\n",
+                       name, st, et, dur,
+                       k==0?"SEND":"RECV", port,
+                       stt==0?"OK":(stt==1?"BAD":"STOP"), prog, spd);
+            }
+            fclose(fp);
+            return 0;
+        }
     }
 
     /* ── Validation ──────────────────────────────────────── */
@@ -195,17 +257,20 @@ int cli_main(int argc, char **argv)
         print_help(argv[0]);
         return 1;
     }
-    strncpy(cfg.path, argv[optind], sizeof(cfg.path) - 1);
+    strncpy(g_cli_path, argv[optind], sizeof(g_cli_path) - 1);
 
-    struct stat st;
+    /* Expand ~ in save_dir for receive mode */
+    const char *expanded_save = config_expand_path(cfg.save_dir);
+
+    struct stat path_st;
     if (cfg.mode == 0) {
-        if (stat(cfg.path, &st) != 0) {
-            fprintf(stderr, "Error: file/directory not found: %s\n", cfg.path);
+        if (stat(g_cli_path, &path_st) != 0) {
+            fprintf(stderr, "Error: file/directory not found: %s\n", g_cli_path);
             return 1;
         }
     } else {
-        if (stat(cfg.path, &st) != 0 || !S_ISDIR(st.st_mode)) {
-            fprintf(stderr, "Error: save directory not found: %s\n", cfg.path);
+        if (stat(expanded_save, &path_st) != 0 || !S_ISDIR(path_st.st_mode)) {
+            fprintf(stderr, "Error: save directory not found: %s\n", expanded_save);
             return 1;
         }
     }
@@ -218,7 +283,7 @@ int cli_main(int argc, char **argv)
     cli_ret = 1;
 
     if (cfg.mode == 0) {
-        /* Send — client connects to receiver */
+        /* Send */
         struct net_context *nc = net_create(cfg.protocol);
         if (!nc) {
             fprintf(stderr, "Error: failed to create network context\n");
@@ -243,17 +308,18 @@ int cli_main(int argc, char **argv)
             sleep(1);
         }
         if (tries >= 60) {
-            fprintf(stderr, "\nError: failed to connect to %s:%d\n", cfg.address, cfg.port);
+            fprintf(stderr, "\nError: failed to connect to %s:%d\n",
+                    cfg.address, cfg.port);
             net_destroy(nc);
             return 1;
         }
-        fprintf(stderr, "\nConnected! Sending %s...\n", cfg.path);
-        transfer_send(nc, cfg.path, cfg.protocol);
+        fprintf(stderr, "\nConnected! Sending %s...\n", g_cli_path);
+        transfer_send(nc, g_cli_path, cfg.protocol);
         net_destroy(nc);
         return cli_ret;
     }
 
-    /* Receive — persistent listener, loops forever */
+    /* Receive — persistent listener */
     fprintf(stderr, "Persistent listener on %s:%d (Ctrl+C to stop)\n\n",
             cfg.address, cfg.port);
     int transfer_count = 0;
@@ -283,7 +349,7 @@ int cli_main(int argc, char **argv)
         cli_start_ms = now_ms();
         cli_ret = 1;
         fprintf(stderr, "[%d] Waiting for sender...\n", transfer_count);
-        transfer_recv(nc, cfg.path, cfg.protocol);
+        transfer_recv(nc, expanded_save, cfg.protocol);
         net_destroy(nc);
 
         if (cli_ret != 0) {
