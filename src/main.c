@@ -277,8 +277,11 @@ static int gui_accept_cb(const char *ip, const char *hostname,
 
 int main(int argc, char **argv)
 {
-    /* 检查命令行是否带有 --gui 标志 */
-    bool gui_mode = false;
+    /* Determine mode:
+       - No arguments (double-click / plain ./lanft) → GUI
+       - --gui flag → GUI
+       - Anything else → CLI */
+    bool gui_mode = (argc <= 1);
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--gui") == 0) {
             gui_mode = true;
@@ -286,12 +289,11 @@ int main(int argc, char **argv)
         }
     }
 
-    /* 默认运行CLI模式 */
     if (!gui_mode) {
         return cli_main(argc, argv);
     }
 
-    /* ── GUI模式初始化 ── */
+    /* ── GUI mode init ── */
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         log_write("SDL_Init: %s\n", SDL_GetError());

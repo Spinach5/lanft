@@ -106,7 +106,7 @@ static int cli_accept_cb(const char *ip, const char *hostname,
 static void print_help(const char *prog)
 {
     printf("Usage: %s [OPTIONS] PATH\n\n", prog);
-    printf("CLI mode (default) — LAN file transfer tool\n\n");
+    printf("LAN file transfer tool — run without arguments to launch GUI\n\n");
     printf("Options:\n");
     printf("  --gui                 Launch SDL2 GUI (graphical mode)\n");
     printf("  -h, --help            Show this help\n");
