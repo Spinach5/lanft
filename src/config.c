@@ -223,19 +223,11 @@ static void mkdir_parents(char *pathbuf)
     for (char *p = pathbuf; *p; p++) {
         if ((*p == '/' || *p == '\\') && p > pathbuf) {
             char saved = *p; *p = '\0';
-#ifdef _WIN32
-            mkdir(pathbuf);
-#else
             mkdir(pathbuf, 0755);
-#endif
             *p = saved;
         }
     }
-#ifdef _WIN32
-    mkdir(pathbuf);
-#else
     mkdir(pathbuf, 0755);
-#endif
     *slash = '/';  /* restore */
 }
 

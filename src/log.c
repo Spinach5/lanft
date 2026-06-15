@@ -46,19 +46,11 @@ int log_init(const struct lanft_config *cfg)
         for (char *p = dirbuf; *p; p++) {
             if ((*p == '/' || *p == '\\') && p > dirbuf) {
                 char saved = *p; *p = '\0';
-#ifdef _WIN32
-                mkdir(dirbuf);
-#else
                 mkdir(dirbuf, 0755);
-#endif
                 *p = saved;
             }
         }
-#ifdef _WIN32
-        mkdir(dirbuf);
-#else
         mkdir(dirbuf, 0755);
-#endif
     }
 
     g_log_fp = fopen(path, "a");
