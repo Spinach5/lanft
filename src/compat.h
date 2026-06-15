@@ -14,7 +14,8 @@
 /* MinGW/MSYS2 provides POSIX headers */
 #include <unistd.h>
 #include <sys/stat.h>
-#include <direct.h>   /* for _mkdir */
+#include <sys/time.h>  /* gettimeofday */
+#include <direct.h>    /* _mkdir */
 #else
 /* MSVC needs these for _mkdir, _getcwd, etc. */
 #include <direct.h>
