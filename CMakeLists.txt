@@ -15,6 +15,16 @@ if(WIN32)
         set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
             CACHE STRING "vcpkg toolchain")
     endif()
+
+    # Workaround: MinGW assembler fails when TEMP path contains non-ASCII
+    # characters (e.g., Chinese username). Use -pipe to avoid temp files,
+    # and set TMPDIR to an ASCII-only directory for any remaining temp usage.
+    if(MINGW)
+        file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/temp")
+        set(ENV{TMPDIR} "${CMAKE_BINARY_DIR}/temp")
+        add_compile_options(-pipe)
+    endif()
+
     pkg_check_modules(LIBWEBSOCKETS libwebsockets)
     pkg_check_modules(LIBARCHIVE libarchive)
 else()
