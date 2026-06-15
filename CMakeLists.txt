@@ -36,6 +36,14 @@ set(SOURCES
 if(BUILD_GUI)
     message(STATUS "Building with SDL2 GUI")
     find_package(SDL2 REQUIRED)
+    # SDL2_ttf — optional, for system font support (Chinese, etc.)
+    find_package(SDL2_ttf QUIET)
+    if(SDL2_TTF_FOUND)
+        message(STATUS "  SDL2_ttf found — system font enabled")
+        add_definitions(-DHAVE_SDL2_TTF)
+    else()
+        message(STATUS "  SDL2_ttf not found — falling back to built-in 8x16 bitmap font (ASCII only)")
+    endif()
     # Work around CMake/Win32 appending .lib to SDL2main's shell32 dependency
     if(WIN32 AND NOT MSVC)
         set_property(TARGET SDL2::SDL2main PROPERTY INTERFACE_LINK_LIBRARIES
@@ -58,6 +66,9 @@ target_include_directories(lanft PRIVATE
 
 if(BUILD_GUI)
     target_include_directories(lanft PRIVATE ${SDL2_INCLUDE_DIRS})
+    if(SDL2_TTF_FOUND)
+        target_include_directories(lanft PRIVATE ${SDL2_TTF_INCLUDE_DIRS})
+    endif()
 endif()
 
 target_link_libraries(lanft
@@ -68,6 +79,9 @@ target_link_libraries(lanft
 
 if(BUILD_GUI)
     target_link_libraries(lanft ${SDL2_LIBRARIES})
+    if(SDL2_TTF_FOUND)
+        target_link_libraries(lanft ${SDL2_TTF_LIBRARIES})
+    endif()
 endif()
 
 if(WIN32)

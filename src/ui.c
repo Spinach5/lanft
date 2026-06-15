@@ -10,6 +10,56 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <SDL2/SDL.h>
+#ifdef HAVE_SDL2_TTF
+#include <SDL2/SDL_ttf.h>
+#endif
+
+/* ── Font system ──────────────────────────────────────────────── */
+
+#define FONT_W  8
+#define FONT_H  16
+#define FONT_GLYPHS 95
+#define FONT_START   32
+
+/* TTF mode globals */
+#ifdef HAVE_SDL2_TTF
+static TTF_Font *ttf_font = NULL;
+static int       ttf_ptsize = 14;
+#endif
+
+/* Try to find a system font that supports CJK.
+   Returns path that must be freed by caller, or NULL. */
+static char *find_system_font(void)
+{
+    static const char *candidates[] = {
+        /* Linux */
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        /* Windows */
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/msyhbd.ttc",
+        "C:/Windows/Fonts/simsun.ttc",
+        "C:/Windows/Fonts/arial.ttf",
+        /* macOS */
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/STHeiti Light.ttc",
+        "/Library/Fonts/Arial Unicode.ttf",
+        NULL
+    };
+    for (int i = 0; candidates[i]; i++) {
+        FILE *fp = fopen(candidates[i], "rb");
+        if (fp) { fclose(fp); return strdup(candidates[i]); }
+    }
+    return NULL;
+}
+
+/* Bitmap font glyph textures */
+static SDL_Texture *glyph_tex[FONT_GLYPHS];
 
 /* ── File dialog ─────────────────────────────────────────────── */
 
@@ -221,21 +271,30 @@ static const unsigned char font_8x16[95][16] = {
     /* ~ */    {0,0,98,244,140,0,0,0,0,0,0,0,0,0,0,0},
 };
 
-#define FONT_W  8
-#define FONT_H  16
-#define FONT_GLYPHS 95
-#define FONT_START   32
-
-/* ── Global font state ─────────────────────────────────────── */
-static SDL_Texture *glyph_tex[FONT_GLYPHS];
-
 /* ── Init / cleanup ────────────────────────────────────────── */
 
 int ui_init(void)
 {
-    /* Font initialization: create glyph textures */
-    /* We'll create these lazily since we need a renderer */
     memset(glyph_tex, 0, sizeof(glyph_tex));
+#ifdef HAVE_SDL2_TTF
+    if (TTF_Init() == 0) {
+        char *font_path = find_system_font();
+        if (font_path) {
+            ttf_font = TTF_OpenFont(font_path, ttf_ptsize);
+            if (ttf_font) {
+                log_write("[ui] loaded system font: %s (%dpt)\n", font_path, ttf_ptsize);
+            } else {
+                log_write("[ui] TTF_OpenFont failed: %s\n", TTF_GetError());
+            }
+            free(font_path);
+        } else {
+            log_write("[ui] no system CJK font found, using built-in bitmap font\n");
+        }
+        if (!ttf_font) TTF_Quit();  /* no usable font, shutdown TTF */
+    } else {
+        log_write("[ui] TTF_Init failed: %s\n", TTF_GetError());
+    }
+#endif
     return 0;
 }
 
@@ -245,6 +304,10 @@ void ui_cleanup(void)
         if (glyph_tex[i]) SDL_DestroyTexture(glyph_tex[i]);
         glyph_tex[i] = NULL;
     }
+#ifdef HAVE_SDL2_TTF
+    if (ttf_font) { TTF_CloseFont(ttf_font); ttf_font = NULL; }
+    TTF_Quit();
+#endif
 }
 
 /* ── Drawing primitives ────────────────────────────────────── */
@@ -292,6 +355,22 @@ void ui_draw_text(SDL_Renderer *r, const char *text, int x, int y, SDL_Color c)
 {
     if (!text || !text[0]) return;
 
+#ifdef HAVE_SDL2_TTF
+    if (ttf_font) {
+        SDL_Surface *surf = TTF_RenderUTF8_Blended(ttf_font, text, c);
+        if (surf) {
+            SDL_Texture *tex = SDL_CreateTextureFromSurface(r, surf);
+            if (tex) {
+                SDL_Rect dst = {x, y, surf->w, surf->h};
+                SDL_RenderCopy(r, tex, NULL, &dst);
+                SDL_DestroyTexture(tex);
+            }
+            SDL_FreeSurface(surf);
+        }
+        return;
+    }
+#endif
+    /* Fallback: built-in 8x16 bitmap */
     int cx = x;
     for (const char *p = text; *p; p++) {
         int idx = (unsigned char)*p - FONT_START;
@@ -312,6 +391,16 @@ void ui_draw_text(SDL_Renderer *r, const char *text, int x, int y, SDL_Color c)
 
 void ui_text_size(const char *text, int *w, int *h)
 {
+#ifdef HAVE_SDL2_TTF
+    if (ttf_font && text && text[0]) {
+        int tw, th;
+        if (TTF_SizeUTF8(ttf_font, text, &tw, &th) == 0) {
+            if (w) *w = tw;
+            if (h) *h = th;
+            return;
+        }
+    }
+#endif
     if (w) *w = (text ? (int)strlen(text) * (FONT_W + 1) : 0);
     if (h) *h = FONT_H;
 }
