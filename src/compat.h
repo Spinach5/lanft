@@ -12,16 +12,18 @@
 #include <direct.h>
 #include <process.h>
 #ifdef __GNUC__
-/* MinGW provides POSIX headers — include for sleep/usleep/etc. */
+/* MinGW/MSYS2 provides POSIX headers */
 #include <unistd.h>
+#include <sys/stat.h>
 #endif
 
-/* Map POSIX to Windows */
-/* sleep/usleep are only needed for MSVC — MinGW has them in <unistd.h> */
+/* ── POSIX name mappings ────────────────────────────────────
+ * MinGW/MSYS2 (__GNUC__) already provides standard POSIX names
+ * via its headers. Only MSVC needs these ugly redefines. */
 #ifndef __GNUC__
+/* MSVC-only hacks */
 #define sleep(s)          Sleep((s)*1000)
 #define usleep(us)        Sleep((us)/1000)
-#endif
 /* NOTE: do NOT #define close → closesocket.
  * It breaks libwebsockets' internal struct member names
  * (LWS_FOP_CLOSE expands to 'close') and incorrectly maps
@@ -33,16 +35,18 @@
 #define chdir(p)          _chdir(p)
 #define mkdir(p,m)        _mkdir(p)
 #define unlink(p)         _unlink(p)
-#define stat              _stat
-#define fstat             _fstat
-#define lstat             _stat   /* no symlinks on Windows, lstat ≡ stat */
+#define stat(p,s)         _stat(p,s)
+#define fstat(f,s)        _fstat(f,s)
+#define lstat(p,s)        _stat(p,s)  /* no symlinks on Windows */
+#endif  /* !__GNUC__ */
 
 typedef int socklen_t;
 typedef SOCKET socket_t;
 #define INVALID_FD        INVALID_SOCKET
 #define SOCKET_ERROR_VAL  SOCKET_ERROR
 
-/* gettimeofday replacement */
+/* gettimeofday replacement (MSVC only — MinGW has it in sys/time.h) */
+#ifndef __GNUC__
 #include <sys/timeb.h>
 static inline int compat_gettimeofday(struct timeval *tv, void *tz) {
     (void)tz;
@@ -53,6 +57,7 @@ static inline int compat_gettimeofday(struct timeval *tv, void *tz) {
     return 0;
 }
 #define gettimeofday compat_gettimeofday
+#endif
 
 /* No getopt_long on MSVC — use a simple shim for MinGW; MSVC needs replacement */
 #ifndef __GNUC__
@@ -104,8 +109,10 @@ static inline ssize_t sock_read(socket_t fd, void *buf, size_t len) {
     return (ssize_t)recv(fd, (char *)buf, (int)len, 0);
 }
 
-/* Missing POSIX types */
+/* Missing POSIX types (MSVC only — MinGW provides them) */
+#ifndef __GNUC__
 #define ssize_t SSIZE_T
+#endif
 
 #else
 /* ── Linux / Unix ─────────────────────────────────────────── */
