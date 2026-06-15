@@ -200,7 +200,61 @@ static void scanner_run(uint16_t port)
         return;
     }
 
-    /* Scan each subnet */
+    /* ── Phase 1: UDP broadcast probe (fast, finds idle instances too) */
+    for (int s = 0; s < subnet_count; s++) {
+        socket_t udp_fd = socket(AF_INET, SOCK_DGRAM, 0);
+        if (udp_fd == INVALID_FD) continue;
+
+        int broadcast = 1;
+        setsockopt(udp_fd, SOL_SOCKET, SO_BROADCAST,
+                   (const char *)&broadcast, sizeof(broadcast));
+        struct timeval tv = {0, 500000};
+        setsockopt(udp_fd, SOL_SOCKET, SO_RCVTIMEO,
+                   (const char *)&tv, sizeof(tv));
+
+        char bcast_ip[64];
+        snprintf(bcast_ip, sizeof(bcast_ip), "%s.255", subnets[s]);
+        struct sockaddr_in baddr;
+        memset(&baddr, 0, sizeof(baddr));
+        baddr.sin_family = AF_INET;
+        baddr.sin_port = htons(port);
+        inet_pton(AF_INET, bcast_ip, &baddr.sin_addr);
+
+        uint32_t magic = FT_MAGIC;
+        sendto(udp_fd, &magic, 4, 0,
+               (struct sockaddr *)&baddr, sizeof(baddr));
+
+        /* Collect responses (up to 2 seconds) */
+        for (int r = 0; r < 4; r++) {
+            uint8_t buf[260];
+            struct sockaddr_in src;
+            socklen_t srclen = sizeof(src);
+            ssize_t n = recvfrom(udp_fd, buf, sizeof(buf), 0,
+                                 (struct sockaddr *)&src, &srclen);
+            if (n < 4) continue;
+            uint32_t rmagic;
+            memcpy(&rmagic, buf, 4);
+            if (rmagic != FT_MAGIC) continue;
+
+            char ip[64];
+            inet_ntop(AF_INET, &src.sin_addr, ip, sizeof(ip));
+            struct event_scan_found *evt = calloc(1, sizeof(*evt));
+            strncpy(evt->ip, ip, sizeof(evt->ip) - 1);
+            if (n >= 260)
+                strncpy(evt->hostname, (char *)(buf + 4), sizeof(evt->hostname) - 1);
+            else
+                strncpy(evt->hostname, "", sizeof(evt->hostname) - 1);
+
+            SDL_Event event;
+            SDL_memset(&event, 0, sizeof(event));
+            event.type = SDL_USEREVENT + 1;
+            event.user.data1 = evt;
+            SDL_PushEvent(&event);
+        }
+        close_sock(udp_fd);
+    }
+
+    /* ── Phase 2: TCP connect scan (fallback for non-discovery instances) */
     for (int s = 0; s < subnet_count; s++) {
         log_write("[SCAN] scanning subnet %s.x (port %d)...\n", subnets[s], port);
         scan_subnet(subnets[s], port);

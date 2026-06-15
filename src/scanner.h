@@ -3,10 +3,9 @@
 
 #include <stdint.h>
 
-/* Start a LAN scan for devices listening on the given port.
-   Non-blocking: spawns a background thread. Results delivered via SDL_UserEvent:
-   - USEREVENT_SCAN_FOUND (struct event_scan_found) for each device
-   - USEREVENT_SCAN_DONE  (struct event_scan_done) when finished */
+/* Start a LAN scan for devices on the given port.
+   Uses UDP broadcast + TCP connect scan.
+   Non-blocking: spawns background thread. Results via SDL_UserEvent. */
 void scanner_start(uint16_t port);
 
 #endif /* SCANNER_H */

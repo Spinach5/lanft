@@ -6,6 +6,7 @@
 #include "ui.h"         /* 用户界面（SDL）相关 */
 #include "config.h"     /* 配置加载/保存 */
 #include "log.h"        /* 日志记录 */
+#include "discovery.h"  /* UDP发现响应 */
 
 #include <stdbool.h>    /* bool 类型 */
 #include <stdio.h>      /* 标准输入输出 */
@@ -342,6 +343,8 @@ int main(int argc, char **argv)
     state.active_input = 0;
     config_load(&state.gui_cfg);              /* 加载用户配置 */
     log_init(&state.gui_cfg);                 /* 初始化日志 */
+    if (state.gui_cfg.discovery_enabled)        /* 启动UDP发现应答 */
+        discovery_start((uint16_t)state.gui_cfg.port);
     /* 从配置中填充默认值 */
     state.scan_port = state.gui_cfg.port;
     state.send_port = state.gui_cfg.port;
@@ -660,6 +663,7 @@ int main(int argc, char **argv)
     /* 程序退出，保存状态和配置 */
     history_save(&state);
     config_save(&state.gui_cfg);
+    discovery_stop();
     log_close();
     ui_cleanup();
     SDL_DestroyRenderer(renderer);

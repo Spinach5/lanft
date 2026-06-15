@@ -4,6 +4,7 @@
 #include "compat.h"
 #include "config.h"
 #include "log.h"
+#include "discovery.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -284,6 +285,10 @@ int cli_main(int argc, char **argv)
 
     /* Re-init log with CLI-overridden config (e.g. --log-file) */
     log_init(&cfg);
+
+    /* Start discovery responder so other instances can find us */
+    if (cfg.discovery_enabled)
+        discovery_start((uint16_t)cfg.port);
 
     /* --- Validation ------------------------------------------------------------ */
     if (cfg.mode < 0) {

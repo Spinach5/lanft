@@ -30,6 +30,7 @@ set(SOURCES
     src/cli.c
     src/config.c
     src/log.c
+    src/discovery.c
     src/tomlc17/tomlc17.c
 )
 
