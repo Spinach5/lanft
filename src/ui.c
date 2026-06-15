@@ -4,6 +4,7 @@
 #include "transfer.h"
 #include "network.h"
 #include "compat.h"
+#include "log.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -24,7 +25,45 @@
 /* TTF mode globals */
 #ifdef HAVE_SDL2_TTF
 static TTF_Font *ttf_font = NULL;
-static int       ttf_ptsize = 14;
+static int       ttf_ptsize = 16;
+
+/* Simple text cache — avoid re-rendering same string every frame */
+#define TEX_CACHE_SIZE 64
+static struct { char text[256]; SDL_Color color; SDL_Texture *tex; int w, h; } tex_cache[TEX_CACHE_SIZE];
+static int tex_cache_next = 0;
+
+static SDL_Texture *find_cached_tex(SDL_Renderer *r, const char *text, SDL_Color c, int *w, int *h)
+{
+    for (int i = 0; i < TEX_CACHE_SIZE; i++) {
+        if (tex_cache[i].tex && strcmp(tex_cache[i].text, text) == 0 &&
+            tex_cache[i].color.r == c.r && tex_cache[i].color.g == c.g &&
+            tex_cache[i].color.b == c.b && tex_cache[i].color.a == c.a) {
+            *w = tex_cache[i].w; *h = tex_cache[i].h;
+            return tex_cache[i].tex;
+        }
+    }
+    return NULL;
+}
+
+static void cache_tex(const char *text, SDL_Color c, SDL_Texture *tex, int w, int h)
+{
+    int slot = tex_cache_next++ % TEX_CACHE_SIZE;
+    if (tex_cache[slot].tex) SDL_DestroyTexture(tex_cache[slot].tex);
+    strncpy(tex_cache[slot].text, text, 255);
+    tex_cache[slot].text[255] = '\0';
+    tex_cache[slot].color = c;
+    tex_cache[slot].tex = tex;
+    tex_cache[slot].w  = w;
+    tex_cache[slot].h  = h;
+}
+
+static void clear_tex_cache(void)
+{
+    for (int i = 0; i < TEX_CACHE_SIZE; i++) {
+        if (tex_cache[i].tex) { SDL_DestroyTexture(tex_cache[i].tex); tex_cache[i].tex = NULL; }
+    }
+    tex_cache_next = 0;
+}
 #endif
 
 /* Try to find a system font that supports CJK.
@@ -305,6 +344,7 @@ void ui_cleanup(void)
         glyph_tex[i] = NULL;
     }
 #ifdef HAVE_SDL2_TTF
+    clear_tex_cache();
     if (ttf_font) { TTF_CloseFont(ttf_font); ttf_font = NULL; }
     TTF_Quit();
 #endif
@@ -357,15 +397,19 @@ void ui_draw_text(SDL_Renderer *r, const char *text, int x, int y, SDL_Color c)
 
 #ifdef HAVE_SDL2_TTF
     if (ttf_font) {
-        SDL_Surface *surf = TTF_RenderUTF8_Blended(ttf_font, text, c);
-        if (surf) {
-            SDL_Texture *tex = SDL_CreateTextureFromSurface(r, surf);
-            if (tex) {
-                SDL_Rect dst = {x, y, surf->w, surf->h};
-                SDL_RenderCopy(r, tex, NULL, &dst);
-                SDL_DestroyTexture(tex);
+        int tw, th;
+        SDL_Texture *tex = find_cached_tex(r, text, c, &tw, &th);
+        if (!tex) {
+            SDL_Surface *surf = TTF_RenderUTF8_Blended(ttf_font, text, c);
+            if (surf) {
+                tex = SDL_CreateTextureFromSurface(r, surf);
+                if (tex) { cache_tex(text, c, tex, surf->w, surf->h); tw = surf->w; th = surf->h; }
+                SDL_FreeSurface(surf);
             }
-            SDL_FreeSurface(surf);
+        }
+        if (tex) {
+            SDL_Rect dst = {x, y, tw, th};
+            SDL_RenderCopy(r, tex, NULL, &dst);
         }
         return;
     }

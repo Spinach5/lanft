@@ -1,72 +1,82 @@
-#include "protocol.h"
-#include "network.h"
-#include "scanner.h"
-#include "transfer.h"
-#include "ui.h"
+/* 包含自定义头文件 */
+#include "protocol.h"   /* 协议定义（TCP/UDP模式常量） */
+#include "network.h"    /* 网络抽象层接口 */
+#include "scanner.h"    /* 局域网扫描功能 */
+#include "transfer.h"   /* 文件传输核心逻辑 */
+#include "ui.h"         /* 用户界面（SDL）相关 */
+#include "config.h"     /* 配置加载/保存 */
+#include "log.h"        /* 日志记录 */
 
-#include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <sys/time.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <SDL2/SDL.h>
-#include "config.h"
-#include "log.h"
+#include <stdbool.h>    /* bool 类型 */
+#include <stdio.h>      /* 标准输入输出 */
+#include <stdlib.h>     /* 标准库（内存分配等） */
+#include <string.h>     /* 字符串操作 */
+#include <time.h>       /* 时间函数 */
+#include <sys/time.h>   /* gettimeofday */
+#include <unistd.h>     /* usleep, 其他POSIX函数 */
+#include <pthread.h>    /* 多线程（发送/接收工作线程） */
+#include <SDL2/SDL.h>   /* SDL2图形库 */
 
 /* ═══════════════════════════════════════════════════════════
-   Transfer thread wrappers
+   传输线程包装器（Transfer thread wrappers）
    ═══════════════════════════════════════════════════════════ */
 
+/* 全局变量：当前活动的网络上下文（用于取消操作） */
 static struct net_context *active_nc = NULL;
+/* 发送/接收停止标志 */
 static bool transfer_stopped = false;
 static bool recv_stop_requested = false;
 
+/* 发送线程的参数结构体 */
 typedef struct {
-    struct net_context *nc;
-    char filepath[1024];
-    char target_ip[64];
-    int  target_port;
-    int protocol;
+    struct net_context *nc;      /* 网络上下文 */
+    char filepath[1024];         /* 要发送的文件路径 */
+    char target_ip[64];          /* 目标IP地址 */
+    int  target_port;            /* 目标端口 */
+    int protocol;                /* 协议（TCP/UDP） */
 } send_thread_args;
 
+/* 发送线程函数（在独立线程中运行） */
 static void *send_thread_func(void *arg)
 {
     send_thread_args *a = (send_thread_args *)arg;
-    /* Retry connect loop — sender is now client */
     log_write("[SEND] thread started, connecting to receiver %s:%d...\n",
             a->target_ip, a->target_port);
+    /* 重连循环：若未取消，则尝试连接接收端 */
     while (!net_is_cancelled(a->nc)) {
         if (a->protocol == FT_PROTO_TCP) {
+            /* TCP模式：主动连接到接收端 */
             if (net_connect(a->nc, a->target_ip, a->target_port) == 0) {
                 log_write("[SEND] connected to receiver!\n");
                 break;
             }
         } else {
+            /* UDP模式：绑定本地端口并设置对端地址 */
             if (net_udp_bind(a->nc, a->target_port) == 0) {
                 net_udp_set_peer(a->nc, a->target_ip, a->target_port);
                 break;
             }
         }
-        usleep(500000);
+        usleep(500000); /* 等待0.5秒后重试 */
     }
+    /* 若未被取消，则开始实际传输 */
     if (!net_is_cancelled(a->nc)) {
         transfer_send(a->nc, a->filepath, a->protocol);
     }
-    net_destroy(a->nc);
-    free(a);
+    net_destroy(a->nc); /* 释放网络上下文 */
+    free(a);            /* 释放参数结构体 */
     return NULL;
 }
 
+/* 接收线程的参数结构体 */
 typedef struct {
-    char savepath[1024];
-    char listen_ip[64];
-    int  port;
-    int  protocol;
+    char savepath[1024];    /* 保存路径 */
+    char listen_ip[64];     /* 监听IP地址 */
+    int  port;              /* 监听端口 */
+    int  protocol;          /* 协议 */
 } recv_thread_args;
 
+/* 接收线程函数（持久监听，可接受多次传输） */
 static void *recv_thread_func(void *arg)
 {
     recv_thread_args *a = (recv_thread_args *)arg;
@@ -76,14 +86,16 @@ static void *recv_thread_func(void *arg)
     strncpy(ip, a->listen_ip, sizeof(ip) - 1);
     int port    = a->port;
     int proto   = a->protocol;
-    free(a);
+    free(a);   /* 参数不再需要，释放 */
 
     log_write("[RECV] persistent listener started on %s:%d\n", ip, port);
 
+    /* 循环接受传输，直到收到停止请求 */
     while (!recv_stop_requested) {
         struct net_context *nc = net_create(proto);
         if (!nc) {
             recv_stop_requested = true;
+            /* 推送错误事件到UI线程 */
             struct event_error *err = calloc(1, sizeof(*err));
             snprintf(err->message, sizeof(err->message),
                      "Failed to create network context");
@@ -94,6 +106,7 @@ static void *recv_thread_func(void *arg)
         }
 
         if (proto == FT_PROTO_TCP) {
+            /* TCP模式：监听指定IP和端口 */
             if (net_listen_ip(nc, ip, port) != 0) {
                 recv_stop_requested = true;
                 struct event_error *err = calloc(1, sizeof(*err));
@@ -106,6 +119,7 @@ static void *recv_thread_func(void *arg)
                 break;
             }
         } else {
+            /* UDP模式：绑定本地端口 */
             if (net_udp_bind(nc, port) != 0) {
                 recv_stop_requested = true;
                 struct event_error *err = calloc(1, sizeof(*err));
@@ -119,10 +133,10 @@ static void *recv_thread_func(void *arg)
             }
         }
 
-        active_nc = nc;
+        active_nc = nc;   /* 设置全局活动上下文，以便取消 */
         log_write("[RECV] waiting for sender (transfer #%d)...\n",
                 recv_stop_requested ? -1 : 0);
-        transfer_recv(nc, savepath, proto);
+        transfer_recv(nc, savepath, proto);   /* 阻塞直到一次传输完成 */
         net_destroy(nc);
         active_nc = NULL;
 
@@ -135,13 +149,15 @@ static void *recv_thread_func(void *arg)
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Network orchestration — called from main thread
+   网络编排函数（由主线程调用）
    ═══════════════════════════════════════════════════════════ */
 
+/* 启动发送过程（创建线程） */
 static void start_send(struct app_state *state)
 {
     struct net_context *nc = net_create(state->send_protocol);
     if (!nc) {
+        /* 创建失败：推送错误事件 */
         struct event_error *err = calloc(1, sizeof(*err));
         snprintf(err->message, sizeof(err->message), "Failed to create network context");
         SDL_Event ev; SDL_memset(&ev, 0, sizeof(ev));
@@ -150,6 +166,7 @@ static void start_send(struct app_state *state)
         return;
     }
 
+    /* 填充发送线程参数 */
     send_thread_args *args = malloc(sizeof(*args));
     args->nc = nc;
     strncpy(args->filepath, state->send_filepath, sizeof(args->filepath) - 1);
@@ -161,11 +178,12 @@ static void start_send(struct app_state *state)
     transfer_stopped = false;
     pthread_t tid;
     pthread_create(&tid, NULL, send_thread_func, args);
-    pthread_detach(tid);
+    pthread_detach(tid);   /* 分离线程，使其自动回收 */
     log_write("[MAIN] send thread spawned, will connect to %s:%d\n",
             state->send_target_ip, state->send_port);
 }
 
+/* 启动接收过程（创建持久监听线程） */
 static void start_recv(struct app_state *state)
 {
     recv_thread_args *args = malloc(sizeof(*args));
@@ -185,13 +203,13 @@ static void start_recv(struct app_state *state)
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Main
+   主函数
    ═══════════════════════════════════════════════════════════ */
 
-/* CLI entry point (cli.c) */
+/* CLI模式入口（定义在cli.c中） */
 int cli_main(int argc, char **argv);
 
-/* Default SDL callbacks for GUI mode */
+/* GUI模式下，传输模块的回调函数：更新进度条 */
 static void gui_progress(uint64_t done, uint64_t total)
 {
     struct event_progress *p = calloc(1, sizeof(*p));
@@ -200,9 +218,10 @@ static void gui_progress(uint64_t done, uint64_t total)
     p->bytes_total = total;
     SDL_Event ev; SDL_memset(&ev, 0, sizeof(ev));
     ev.type = USEREVENT_PROGRESS; ev.user.data1 = p;
-    SDL_PushEvent(&ev);
+    SDL_PushEvent(&ev);   /* 推送自定义事件到主线程 */
 }
 
+/* GUI模式下，传输模块的回调函数：报告错误 */
 static void gui_error(const char *msg)
 {
     struct event_error *e = calloc(1, sizeof(*e));
@@ -213,6 +232,7 @@ static void gui_error(const char *msg)
     SDL_PushEvent(&ev);
 }
 
+/* GUI模式下，传输模块的回调函数：传输完成 */
 static void gui_done(void)
 {
     SDL_Event ev; SDL_memset(&ev, 0, sizeof(ev));
@@ -220,12 +240,14 @@ static void gui_done(void)
     SDL_PushEvent(&ev);
 }
 
-/* ── GUI accept callback (called from transfer thread) ──────── */
+/* ── GUI端接受传入传输的询问回调（在传输线程中调用） ──────── */
 
-/* Need extern access to globals in transfer.c */
-extern volatile int g_accept_response;
-extern volatile bool g_accept_pending;
+/* 在transfer.c中定义的全局变量，用于跨线程通信 */
+extern volatile int g_accept_response;   /* 用户响应（1=接受，0=拒绝） */
+extern volatile bool g_accept_pending;   /* 是否等待用户响应 */
 
+/* 当收到传入传输请求时，由transfer_recv调用此回调，
+   询问用户是否接受文件 */
 static int gui_accept_cb(const char *ip, const char *hostname,
                          const char *filename, uint64_t size)
 {
@@ -239,14 +261,15 @@ static int gui_accept_cb(const char *ip, const char *hostname,
     g_accept_response = 0;
     g_accept_pending = true;
 
+    /* 推送传入传输事件到UI线程 */
     SDL_Event ev; SDL_memset(&ev, 0, sizeof(ev));
     ev.type = USEREVENT_INCOMING_TRANSFER;
     ev.user.data1 = evt;
     SDL_PushEvent(&ev);
 
-    /* Wait for user response */
+    /* 等待UI线程设置g_accept_response */
     while (g_accept_pending) {
-        usleep(100000);  /* 100ms poll */
+        usleep(100000);  /* 100ms轮询 */
     }
 
     return (g_accept_response > 0) ? 1 : 0;
@@ -254,7 +277,7 @@ static int gui_accept_cb(const char *ip, const char *hostname,
 
 int main(int argc, char **argv)
 {
-    /* Check if --gui flag is present */
+    /* 检查命令行是否带有 --gui 标志 */
     bool gui_mode = false;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--gui") == 0) {
@@ -263,16 +286,19 @@ int main(int argc, char **argv)
         }
     }
 
-    /* Default: CLI mode */
+    /* 默认运行CLI模式 */
     if (!gui_mode) {
         return cli_main(argc, argv);
     }
+
+    /* ── GUI模式初始化 ── */
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         log_write("SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
 
+    /* 创建窗口 */
     SDL_Window *window = SDL_CreateWindow(
         "LAN File Transfer",
         SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
@@ -284,6 +310,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* 创建渲染器 */
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1,
         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) {
@@ -292,6 +319,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* 初始化UI模块（加载字体、创建纹理等） */
     if (ui_init() != 0) {
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
@@ -299,19 +327,20 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* Set GUI callbacks to push SDL events */
+    /* 设置传输模块的回调函数（将事件推送到主线程） */
     transfer_set_callbacks(gui_progress, gui_error, gui_done);
     transfer_set_accept_callback(gui_accept_cb);
 
-    /* Init app state */
+    /* 初始化应用状态结构体 */
     struct app_state state;
     memset(&state, 0, sizeof(state));
-    history_load(&state);
-    state.current_tab = TAB_SCAN;
+    history_load(&state);                     /* 加载传输历史记录 */
+    state.current_tab = TAB_SCAN;             /* 默认显示扫描标签页 */
     state.selected_device = -1;
     state.active_input = 0;
-    config_load(&state.gui_cfg);
-    log_init(&state.gui_cfg);
+    config_load(&state.gui_cfg);              /* 加载用户配置 */
+    log_init(&state.gui_cfg);                 /* 初始化日志 */
+    /* 从配置中填充默认值 */
     state.scan_port = state.gui_cfg.port;
     state.send_port = state.gui_cfg.port;
     state.recv_port = state.gui_cfg.port;
@@ -327,21 +356,23 @@ int main(int argc, char **argv)
         const char *expanded = config_expand_path(state.gui_cfg.save_dir);
         strncpy(state.recv_savepath, expanded, sizeof(state.recv_savepath) - 1);
     }
-    /* Apply config settings to transfer module */
+    /* 将配置应用到传输模块 */
     transfer_set_auto_accept(state.gui_cfg.auto_accept);
     transfer_set_buffer_size(state.gui_cfg.buffer_size);
     transfer_set_timeout(state.gui_cfg.timeout_seconds);
     transfer_set_overwrite_policy(state.gui_cfg.overwrite_policy);
-    strncpy(state.status_text, "Ready — select a tab to begin",
+    strncpy(state.status_text, "就绪 — 选择标签页开始 (Ready)",
             sizeof(state.status_text) - 1);
     SDL_GetWindowSize(window, &state.window_w, &state.window_h);
 
-    bool pending_send = false;
-    bool pending_recv = false;
+    bool pending_send = false;   /* 发送请求待处理标志 */
+    bool pending_recv = false;   /* 接收请求待处理标志 */
     bool running = true;
     SDL_Event event;
 
+    /* 主事件循环 */
     while (running) {
+        /* 处理所有待处理的SDL事件 */
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
             case SDL_QUIT:
@@ -357,10 +388,13 @@ int main(int argc, char **argv)
 
             case SDL_KEYDOWN:
                 if (event.key.keysym.sym == SDLK_ESCAPE) {
+                    /* ESC键行为：
+                       - 如果模态对话框可见，关闭它
+                       - 否则如果有活动传输，则取消传输
+                       - 否则停止文本输入 */
                     if (state.modal_visible)
                         state.modal_visible = false;
                     else if (state.send_running || state.recv_running) {
-                        /* Cancel active transfer */
                         if (active_nc) net_cancel(active_nc);
                         transfer_stopped = true;
                         recv_stop_requested = true;
@@ -373,15 +407,16 @@ int main(int argc, char **argv)
                         state.active_input = 0;
                         SDL_StopTextInput();
                     }
-                    break;  /* ESC handled */
+                    break;
                 }
-                /* Pass other keys to UI handler */
+                /* 其他按键交给UI处理 */
                 ui_handle_event(&event, &state);
                 break;
 
-            /* ── Custom events from worker threads ────── */
+            /* ── 自定义事件（从工作线程发出） ────── */
 
-            case USEREVENT_SCAN_FOUND: {
+            case USEREVENT_SCAN_FOUND:   /* 扫描发现设备 */
+            {
                 struct event_scan_found *evt = (struct event_scan_found *)event.user.data1;
                 if (evt && state.device_count < 256) {
                     strncpy(state.devices[state.device_count].ip, evt->ip, 63);
@@ -392,7 +427,7 @@ int main(int argc, char **argv)
                 break;
             }
 
-            case USEREVENT_SCAN_DONE:
+            case USEREVENT_SCAN_DONE:    /* 扫描完成 */
                 snprintf(state.scan_status, sizeof(state.scan_status),
                          "Scan complete — %d device(s) found", state.device_count);
                 if (state.device_count == 0)
@@ -401,7 +436,8 @@ int main(int argc, char **argv)
                 free(event.user.data1);
                 break;
 
-            case USEREVENT_PROGRESS: {
+            case USEREVENT_PROGRESS:     /* 传输进度更新 */
+            {
                 struct event_progress *evt = (struct event_progress *)event.user.data1;
                 if (evt) {
                     if (state.send_running) {
@@ -422,8 +458,9 @@ int main(int argc, char **argv)
                 break;
             }
 
-            case USEREVENT_XFER_DONE: {
-                /* Finalize history entry */
+            case USEREVENT_XFER_DONE:   /* 传输完成 */
+            {
+                /* 将本次传输记录到历史 */
                 if (state.history_count < 256) {
                     struct hist_entry *he = &state.history[state.history_count];
                     struct timeval tv; gettimeofday(&tv, NULL);
@@ -431,7 +468,6 @@ int main(int argc, char **argv)
                     state.history_pending_total = state.send_running
                         ? state.send_progress_total : state.recv_progress_total;
 
-                    /* Use actual received filename for persistent recv */
                     const char *recv_name = transfer_last_recv_name();
                     strncpy(he->name, recv_name ? recv_name : state.history_pending_name, 255);
                     time_t now = time(NULL);
@@ -439,14 +475,14 @@ int main(int argc, char **argv)
                     he->duration_ms = end_ms - state.history_pending_start_ms;
                     he->kind = state.history_pending_kind;
                     he->port = state.history_pending_port;
-                    he->status = 0; /* OK */
+                    he->status = 0; /* 成功 */
                     he->progress = 100;
                     if (he->duration_ms > 0 && state.history_pending_total > 0)
                         he->speed = state.history_pending_total * 1000 / he->duration_ms;
                     else he->speed = 0;
                     state.history_count++;
                     history_save(&state);
-                    /* Reset start time for next persistent transfer */
+                    /* 重置开始时间，为下一次持久接收做准备 */
                     state.history_pending_start_ms = end_ms;
                 }
                 if (state.send_running) {
@@ -454,10 +490,8 @@ int main(int argc, char **argv)
                     pending_send = false;
                     active_nc = NULL;
                 }
-                /* For receive: keep running (persistent listener) */
+                /* 接收模式下，保持运行（持久监听） */
                 if (state.recv_running) {
-                    /* active_nc is managed by recv_thread_func */
-                    /* Reset progress for next transfer display */
                     state.recv_progress_done = 0;
                     state.recv_progress_total = 0;
                 }
@@ -465,7 +499,8 @@ int main(int argc, char **argv)
                 break;
             }
 
-            case USEREVENT_ZENITY_RESULT: {
+            case USEREVENT_ZENITY_RESULT:   /* 文件选择对话框结果（通过外部zenity） */
+            {
                 const char *path = (const char *)event.user.data1;
                 int target = event.user.code;
                 if (path && target == 1) {
@@ -481,7 +516,8 @@ int main(int argc, char **argv)
                 break;
             }
 
-            case USEREVENT_INCOMING_TRANSFER: {
+            case USEREVENT_INCOMING_TRANSFER:  /* 收到传入传输请求，需用户确认 */
+            {
                 struct event_incoming_transfer *evt =
                     (struct event_incoming_transfer *)event.user.data1;
                 if (evt) {
@@ -492,18 +528,19 @@ int main(int argc, char **argv)
                     strncpy(state.incoming_filename, evt->filename,
                             sizeof(state.incoming_filename) - 1);
                     state.incoming_size = evt->file_size;
-                    state.incoming_active = true;
+                    state.incoming_active = true;   /* 显示询问对话框 */
                 }
                 free(evt);
                 break;
             }
 
-            case USEREVENT_ERROR: {
+            case USEREVENT_ERROR:   /* 发生错误 */
+            {
                 struct event_error *evt = (struct event_error *)event.user.data1;
                 if (evt) {
                     strncpy(state.modal_message, evt->message, sizeof(state.modal_message) - 1);
                     state.modal_visible = true;
-                    /* Record failed history */
+                    /* 记录失败的历史条目 */
                     if (state.history_count < 256) {
                         struct hist_entry *he = &state.history[state.history_count];
                         struct timeval tv; gettimeofday(&tv, NULL);
@@ -515,7 +552,7 @@ int main(int argc, char **argv)
                         he->duration_ms = (end_ms > state.history_pending_start_ms) ? end_ms - state.history_pending_start_ms : 0;
                         he->kind = state.history_pending_kind;
                         he->port = state.history_pending_port;
-                        he->status = 1; /* BAD */
+                        he->status = 1; /* 失败 */
                         if (state.history_pending_total > 0) {
                             uint64_t done = state.send_running ? state.send_progress_done : state.recv_progress_done;
                             he->progress = (int)(done * 100 / state.history_pending_total);
@@ -531,7 +568,7 @@ int main(int argc, char **argv)
                         pending_send = false;
                         active_nc = NULL;
                     }
-                    /* For receive: keep running (persistent listener) */
+                    /* 接收线程继续运行（持久监听） */
                     snprintf(state.status_text, sizeof(state.status_text), "Error: %s", evt->message);
                 }
                 free(evt);
@@ -544,9 +581,9 @@ int main(int argc, char **argv)
             }
         }
 
-        /* ── Detect send/receive start requests ────────── */
+        /* ── 检测发送/接收启动请求（由UI触发） ────────── */
 
-        /* Cancel if user clicked Stop */
+        /* 如果用户点击停止，则取消活动传输 */
         if (!state.send_running && pending_send && active_nc) {
             net_cancel(active_nc);
             pending_send = false;
@@ -557,15 +594,16 @@ int main(int argc, char **argv)
             pending_recv = false;
         }
 
+        /* 当发送被启用且尚未启动，且没有正在进行中的传输时，开始发送 */
         if (state.send_running && !pending_send && state.send_progress_total == 0) {
             log_write("[MAIN] Starting send: file=%s, target=%s, port=%d, proto=%d\n",
                     state.send_filepath, state.send_target_ip, state.send_port, state.send_protocol);
             pending_send = true;
-            /* Record history entry */
+            /* 预先创建历史记录条目 */
             {
                 const char *fn = strrchr(state.send_filepath, '/');
                 strncpy(state.history_pending_name, fn ? fn + 1 : state.send_filepath, 255);
-                state.history_pending_kind = 0; /* SEND */
+                state.history_pending_kind = 0; /* 发送 */
                 state.history_pending_port = state.send_port;
                 struct timeval tv; gettimeofday(&tv, NULL);
                 state.history_pending_start_ms = (uint64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
@@ -577,15 +615,15 @@ int main(int argc, char **argv)
         }
         if (!state.send_running) pending_send = false;
 
+        /* 当接收被启用且尚未启动，且没有进行中的传输时，开始持久接收 */
         if (state.recv_running && !pending_recv && state.recv_progress_total == 0) {
             log_write("[MAIN] Starting recv: save=%s, target=%s, port=%d, proto=%d\n",
                     state.recv_savepath, state.recv_target_ip, state.recv_port, state.recv_protocol);
             pending_recv = true;
-            /* Record history entry */
             {
                 const char *fn = strrchr(state.recv_savepath, '/');
                 strncpy(state.history_pending_name, fn ? fn + 1 : state.recv_savepath, 255);
-                state.history_pending_kind = 1; /* RECV */
+                state.history_pending_kind = 1; /* 接收 */
                 state.history_pending_port = state.recv_port;
                 struct timeval tv; gettimeofday(&tv, NULL);
                 state.history_pending_start_ms = (uint64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
@@ -597,13 +635,15 @@ int main(int argc, char **argv)
         }
         if (!state.recv_running) pending_recv = false;
 
-        /* Sync auto_accept from settings page to transfer module */
+        /* 同步“自动接受”设置（可能用户在设置页面修改了） */
         transfer_set_auto_accept(state.gui_cfg.auto_accept);
 
+        /* 绘制UI */
         ui_render(renderer, &state);
-        SDL_Delay(16);
+        SDL_Delay(16);   /* 约60 FPS */
     }
 
+    /* 程序退出，保存状态和配置 */
     history_save(&state);
     config_save(&state.gui_cfg);
     log_close();
