@@ -9,12 +9,14 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <io.h>
-#include <direct.h>
 #include <process.h>
 #ifdef __GNUC__
 /* MinGW/MSYS2 provides POSIX headers */
 #include <unistd.h>
 #include <sys/stat.h>
+#else
+/* MSVC needs these for _mkdir, _getcwd, etc. */
+#include <direct.h>
 #endif
 
 /* ── POSIX name mappings ────────────────────────────────────
@@ -39,6 +41,11 @@
 #define fstat(f,s)        _fstat(f,s)
 #define lstat(p,s)        _stat(p,s)  /* no symlinks on Windows */
 #endif  /* !__GNUC__ */
+
+/* MinGW has stat() but not lstat(). Windows has no symlinks. */
+#ifdef __GNUC__
+#define lstat(p,s)  stat(p,s)
+#endif
 
 typedef int socklen_t;
 typedef SOCKET socket_t;
