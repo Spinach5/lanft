@@ -11,7 +11,9 @@
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
-#ifndef _WIN32
+#ifdef _WIN32
+#include <iphlpapi.h>
+#else
 #include <ifaddrs.h>
 #endif
 
@@ -131,6 +133,7 @@ static void print_help(const char *prog)
     printf("  --no-discovery        Disable LAN discovery\n");
     printf("  --log-level=LEVEL     debug | info | warn | error (default: info)\n");
     printf("  --log-file=PATH       Log file path (dir/ for date-based naming)\n");
+    printf("  --max-connections=N   Max transfers before stopping (0=unlimited)\n");
     printf("  --bandwidth-limit=N   Send bandwidth limit in bytes/sec (0=unlimited)\n");
     printf("  --auto-accept         Auto-accept incoming files\n");
     printf("  --no-auto-accept      Prompt before accepting (default)\n");
@@ -175,6 +178,7 @@ int cli_main(int argc, char **argv)
         {"no-progress",    no_argument,       0, 2006},
         {"no-discovery",   no_argument,       0, 2007},
         {"log-level",      required_argument, 0, 2008},
+        {"max-connections", required_argument, 0, 2015},
         {"bandwidth-limit",required_argument, 0, 2009},
         {"auto-accept",    no_argument,       0, 2010},
         {"no-auto-accept", no_argument,       0, 2011},
@@ -234,6 +238,9 @@ int cli_main(int argc, char **argv)
             break;
         case 2008: /* --log-level */
             strncpy(cfg.log_level, optarg, sizeof(cfg.log_level) - 1);
+            break;
+        case 2015: /* --max-connections */
+            cfg.max_connections = atoi(optarg);
             break;
         case 2009: /* --bandwidth-limit */
             cfg.send_bandwidth_limit = atoi(optarg);
@@ -312,7 +319,28 @@ int cli_main(int argc, char **argv)
             {
                 /* Quick subnet collection — same logic as scanner.c */
 #ifdef _WIN32
-                /* Skip Windows for now — scanner.c handles it */
+                ULONG bufLen = 15000;
+                IP_ADAPTER_ADDRESSES *adapters = malloc(bufLen);
+                if (adapters && GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX,
+                    NULL, adapters, &bufLen) == 0) {
+                    for (IP_ADAPTER_ADDRESSES *a = adapters; a && subnet_count < 16; a = a->Next) {
+                        if (a->OperStatus != IfOperStatusUp) continue;
+                        for (IP_ADAPTER_UNICAST_ADDRESS *u = a->FirstUnicastAddress; u; u = u->Next) {
+                            if (u->Address.lpSockaddr->sa_family != AF_INET) continue;
+                            struct sockaddr_in *sin = (struct sockaddr_in *)u->Address.lpSockaddr;
+                            uint32_t ip = ntohl(sin->sin_addr.s_addr);
+                            if ((ip & 0xFF000000) == 0x7F000000) continue;
+                            char s[64];
+                            snprintf(s, sizeof(s), "%d.%d.%d",
+                                     (ip>>24)&0xFF, (ip>>16)&0xFF, (ip>>8)&0xFF);
+                            bool dup = false;
+                            for (int j = 0; j < subnet_count; j++)
+                                if (strcmp(subnets[j], s) == 0) { dup = true; break; }
+                            if (!dup) { strncpy(subnets[subnet_count], s, 63); subnet_count++; }
+                        }
+                    }
+                    free(adapters);
+                }
 #else
                 struct ifaddrs *ifaddr, *ifa;
                 if (getifaddrs(&ifaddr) == 0) {
@@ -449,6 +477,8 @@ int cli_main(int argc, char **argv)
     transfer_set_buffer_size(cfg.buffer_size);
     transfer_set_timeout(cfg.timeout_seconds);
     transfer_set_overwrite_policy(cfg.overwrite_policy);
+    transfer_set_bandwidth_limit(cfg.send_bandwidth_limit);
+    transfer_set_max_connections(cfg.max_connections);
 
     /* CLI accept callback — prompt user on stdin */
     transfer_set_accept_callback(cli_accept_cb);
@@ -494,11 +524,16 @@ int cli_main(int argc, char **argv)
         return cli_ret;
     }
 
-    /* Receive — persistent listener */
+    /* Receive — persistent listener, stops after max_connections if set */
     log_write("Persistent listener on %s:%d (Ctrl+C to stop)\n\n",
             cfg.address, cfg.port);
     int transfer_count = 0;
     while (1) {
+        if (cfg.max_connections > 0 && transfer_count >= cfg.max_connections) {
+            log_write("Reached max_connections limit (%d), stopping.\n",
+                      cfg.max_connections);
+            break;
+        }
         struct net_context *nc = net_create(cfg.protocol);
         if (!nc) {
             log_write("Error: failed to create network context\n");

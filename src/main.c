@@ -75,6 +75,7 @@ typedef struct {
     char listen_ip[64];     /* 监听IP地址 */
     int  port;              /* 监听端口 */
     int  protocol;          /* 协议 */
+    int  max_connections;   /* 最大连接数，0=无限 */
 } recv_thread_args;
 
 /* 接收线程函数（持久监听，可接受多次传输） */
@@ -87,12 +88,19 @@ static void *recv_thread_func(void *arg)
     strncpy(ip, a->listen_ip, sizeof(ip) - 1);
     int port    = a->port;
     int proto   = a->protocol;
+    int max_conn = a->max_connections;
     free(a);   /* 参数不再需要，释放 */
 
-    log_write("[RECV] persistent listener started on %s:%d\n", ip, port);
+    log_write("[RECV] persistent listener started on %s:%d (max %d)\n",
+              ip, port, max_conn);
 
+    int transfer_count = 0;
     /* 循环接受传输，直到收到停止请求 */
     while (!recv_stop_requested) {
+        if (max_conn > 0 && transfer_count >= max_conn) {
+            log_write("[RECV] max_connections (%d) reached, stopping.\n", max_conn);
+            break;
+        }
         struct net_context *nc = net_create(proto);
         if (!nc) {
             recv_stop_requested = true;
@@ -135,8 +143,9 @@ static void *recv_thread_func(void *arg)
         }
 
         active_nc = nc;   /* 设置全局活动上下文，以便取消 */
+        transfer_count++;
         log_write("[RECV] waiting for sender (transfer #%d)...\n",
-                recv_stop_requested ? -1 : 0);
+                transfer_count);
         transfer_recv(nc, savepath, proto);   /* 阻塞直到一次传输完成 */
         net_destroy(nc);
         active_nc = NULL;
@@ -192,7 +201,8 @@ static void start_recv(struct app_state *state)
     strncpy(args->savepath, state->recv_savepath, sizeof(args->savepath) - 1);
     strncpy(args->listen_ip, state->recv_target_ip, sizeof(args->listen_ip) - 1);
     args->port     = state->recv_port;
-    args->protocol = state->recv_protocol;
+    args->protocol        = state->recv_protocol;
+    args->max_connections = state->gui_cfg.max_connections;
 
     recv_stop_requested = false;
     transfer_stopped = false;
@@ -367,6 +377,8 @@ int main(int argc, char **argv)
     transfer_set_buffer_size(state.gui_cfg.buffer_size);
     transfer_set_timeout(state.gui_cfg.timeout_seconds);
     transfer_set_overwrite_policy(state.gui_cfg.overwrite_policy);
+    transfer_set_bandwidth_limit(state.gui_cfg.send_bandwidth_limit);
+    transfer_set_max_connections(state.gui_cfg.max_connections);
     state.status_text[0] = '\0';
     SDL_GetWindowSize(window, &state.window_w, &state.window_h);
 

@@ -39,6 +39,8 @@ void transfer_reject(void);
 void transfer_set_buffer_size(int size);
 void transfer_set_timeout(int seconds);
 void transfer_set_overwrite_policy(const char *policy);  /* "rename"|"overwrite"|"skip" */
+void transfer_set_bandwidth_limit(int limit);            /* bytes/sec, 0=unlimited */
+void transfer_set_max_connections(int max_conn);         /* 0=unlimited */
 
 /* Send a file over the network.
    nc must already be connected/listening.

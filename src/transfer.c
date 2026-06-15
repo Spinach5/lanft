@@ -45,8 +45,10 @@ void transfer_reject(void)
 /* ── Runtime config ─────────────────────────────────────────── */
 #define MAX_CHUNK_SIZE  (1024 * 1024)   /* 1 MiB ceiling */
 static uint8_t  g_chunk_buf[MAX_CHUNK_SIZE];
-static int      g_buffer_size       = 65536;
-static int      g_timeout_seconds   = 30;
+static int      g_buffer_size          = 65536;
+static int      g_timeout_seconds      = 30;
+static int      g_bandwidth_limit      = 0;    /* 0 = unlimited */
+static int      g_max_connections      = 0;    /* 0 = unlimited */
 static char     g_overwrite_policy[16] = "rename";
 
 void transfer_set_buffer_size(int size)
@@ -65,6 +67,16 @@ void transfer_set_overwrite_policy(const char *policy)
 {
     if (policy && policy[0])
         strncpy(g_overwrite_policy, policy, sizeof(g_overwrite_policy) - 1);
+}
+
+void transfer_set_bandwidth_limit(int limit)
+{
+    g_bandwidth_limit = (limit > 0) ? limit : 0;
+}
+
+void transfer_set_max_connections(int max_conn)
+{
+    g_max_connections = (max_conn > 0) ? max_conn : 0;
 }
 
 void transfer_set_callbacks(transfer_progress_fn prog,
@@ -151,6 +163,13 @@ static uint64_t file_size(const char *path)
     struct stat st;
     if (stat(path, &st) != 0) return 0;
     return (uint64_t)st.st_size;
+}
+
+/* ── Helpers ───────────────────────────────────────────────── */
+
+static uint64_t now_ms_transfer(void) {
+    struct timeval tv; gettimeofday(&tv, NULL);
+    return (uint64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
 /* ── Meta exchange ─────────────────────────────────────────── */
@@ -443,6 +462,17 @@ static int tcp_send_file(struct net_context *nc, const char *filepath,
             sent += n;
             log_write("[SEND] progress %lu/%lu\n", (unsigned long)sent, (unsigned long)total);
             push_progress(sent, total);
+
+            /* Bandwidth throttling */
+            if (g_bandwidth_limit > 0) {
+                static uint64_t throttle_start_ms = 0;
+                if (sent == n) throttle_start_ms = now_ms_transfer();
+                uint64_t elapsed = now_ms_transfer() - throttle_start_ms;
+                uint64_t target_ms = (sent * 1000ULL) / (uint64_t)g_bandwidth_limit;
+                if (elapsed < target_ms) {
+                    usleep((unsigned int)((target_ms - elapsed) * 1000));
+                }
+            }
         }
         fclose(fp);
     }
