@@ -12,7 +12,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
-#ifndef _WIN32
+#ifdef _WIN32
+#include <iphlpapi.h>
+#else
 #include <ifaddrs.h>
 #endif
 
