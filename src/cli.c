@@ -531,7 +531,9 @@ int cli_main(int argc, char **argv)
             return 1;
         }
         log_write("\nConnected! Sending %s...\n", send_path);
+        log_mute_stderr(true);
         transfer_send(nc, send_path, cfg.protocol);
+        log_mute_stderr(false);
         net_destroy(nc);
         transfer_cleanup_send(send_path, g_cli_path);
         return cli_ret;
@@ -572,7 +574,9 @@ int cli_main(int argc, char **argv)
         cli_start_ms = now_ms();
         cli_ret = 1;
         log_write("[%d] Waiting for sender...\n", transfer_count);
+        log_mute_stderr(true);
         transfer_recv(nc, work_path, cfg.protocol);
+        log_mute_stderr(false);
         net_destroy(nc);
 
         if (cli_ret != 0) {

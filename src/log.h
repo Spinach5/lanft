@@ -14,6 +14,7 @@
 #ifndef LOG_H
 #define LOG_H
 
+#include <stdbool.h>
 #include <stdio.h>
 
 struct lanft_config;
@@ -24,6 +25,10 @@ int  log_init(const struct lanft_config *cfg);
 
 /* Close log file. Call on exit. */
 void log_close(void);
+
+/* Temporarily suppress non-error stderr output during active transfer.
+   Only log_error() and log_write() still reach stderr. */
+void log_mute_stderr(bool mute);
 
 /* ── Level-filtered ─────────────────────────────────────────── */
 /* These obey log_level — debug messages are suppressed when level>debug, etc. */

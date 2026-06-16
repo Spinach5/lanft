@@ -1,6 +1,7 @@
 #include "log.h"
 #include "config.h"
 #include "compat.h"
+#include <stdbool.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +14,9 @@
 
 static FILE *g_log_fp = NULL;
 static int   g_log_level = 0;   /* 0=debug, 1=info, 2=warn, 3=error */
+static bool  g_mute_stderr = false;
+
+void log_mute_stderr(bool mute) { g_mute_stderr = mute; }
 
 static int level_from_str(const char *s)
 {
@@ -87,11 +91,13 @@ static void log_vwrite(int level, const char *fmt, va_list ap)
     char msgbuf[4096];
     vsnprintf(msgbuf, sizeof(msgbuf), fmt, ap);
 
-    /* stderr */
-    fprintf(stderr, "%s", msgbuf);
-    fflush(stderr);
+    /* stderr — skip debug/info/warn when muted, only errors pass */
+    if (!g_mute_stderr || level >= 3) {
+        fprintf(stderr, "%s", msgbuf);
+        fflush(stderr);
+    }
 
-    /* Log file (with timestamp + level prefix) */
+    /* Log file (always gets timestamp + level prefix) */
     if (g_log_fp) {
         fprintf(g_log_fp, "[%s] [%s] %s", ts, label, msgbuf);
         fflush(g_log_fp);
