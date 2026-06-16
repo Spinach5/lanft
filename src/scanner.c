@@ -145,6 +145,11 @@ static void *scan_ip_thread(void *arg)
             int err = 0;
             sock_getopt_int(fd, SOL_SOCKET, SO_ERROR, &err);
             if (err == 0) {
+                /* Close socket immediately — reverse DNS can be slow
+                   and we don't want to keep the receiver waiting for meta. */
+                close_sock(fd);
+                fd = INVALID_FD;
+
                 struct event_scan_found *evt = calloc(1, sizeof(*evt));
                 strncpy(evt->ip, ip, sizeof(evt->ip) - 1);
                 const char *host = reverse_dns(ip);
@@ -157,7 +162,7 @@ static void *scan_ip_thread(void *arg)
                 SDL_PushEvent(&event);
             }
         }
-        close_sock(fd);
+        if (fd != INVALID_FD) close_sock(fd);
     }
     return NULL;
 }
