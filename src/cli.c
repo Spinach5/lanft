@@ -38,21 +38,24 @@ static void cli_progress(uint64_t done, uint64_t total)
     int pct = (int)(done * 100 / total);
     int bar_w = 30;
     int filled = bar_w * pct / 100;
-    log_write("\r  [");
+
+    /* Write progress bar directly to stderr — \r keeps it on one line.
+       Must not go through log_write() which would add timestamps. */
+    fprintf(stderr, "\r  [");
     for (int i = 0; i < bar_w; i++)
         fputc(i < filled ? '=' : (i == filled ? '>' : ' '), stderr);
-    log_write("] %3d%%  ", pct);
+    fprintf(stderr, "] %3d%%  ", pct);
 
     const char *units[] = {"B","KB","MB","GB"};
     int ui = 0; double ds = done;   while (ds >= 1024 && ui < 3) { ds /= 1024; ui++; }
     int uj = 0; double ts = total;  while (ts >= 1024 && uj < 3) { ts /= 1024; uj++; }
-    log_write("%.1f%s / %.1f%s", ds, units[ui], ts, units[uj]);
+    fprintf(stderr, "%.1f%s / %.1f%s", ds, units[ui], ts, units[uj]);
 
     uint64_t elapsed = now_ms() - cli_start_ms;
     if (elapsed > 0) {
         double speed = (double)done / ((double)elapsed / 1000.0);
         int sk = 0; while (speed >= 1024 && sk < 3) { speed /= 1024; sk++; }
-        log_write("  %.1f%s/s", speed, units[sk]);
+        fprintf(stderr, "  %.1f%s/s", speed, units[sk]);
     }
     fflush(stderr);
 }
