@@ -359,41 +359,22 @@ static int extract_archive(const char *arc_path, const char *dest_dir)
 }
 
 static int tcp_send_file(struct net_context *nc, const char *filepath,
-                          uint64_t resume_offset)
+                          uint64_t resume_offset, bool is_dir)
 {
     socket_t fd = net_get_fd(nc);
     log_write("[SEND] tcp_send_file: fd=%d, file=%s\n", fd, filepath);
     if (fd < 0) { log_write("[SEND] BAD FD!\n"); push_error("No socket"); return -2; }
 
-    /* Check if path is a directory — compress with libarchive */
-    struct stat path_st;
-    bool is_dir = false;
-    char *tmp_archive = NULL;
-    const char *actual_path = filepath;
-    uint64_t total = 0;
-
-    if (stat(filepath, &path_st) == 0 && S_ISDIR(path_st.st_mode)) {
-        is_dir = true;
-        log_write("[SEND] directory mode, compressing with libarchive...\n");
-        tmp_archive = compress_dir_to_tmp(filepath, &total);
-        if (!tmp_archive || total == 0) {
-            push_error("Failed to compress directory");
-            free(tmp_archive);
-            return -2;
-        }
-        actual_path = tmp_archive;
-        log_write("[SEND] compressed to %s (%lu bytes)\n", tmp_archive, (unsigned long)total);
-    } else {
-        FILE *fp = fopen(filepath, "rb");
-        if (!fp) { log_write("[SEND] CANNOT OPEN!\n"); push_error("Cannot open: %s", filepath); return -2; }
-        fseek(fp, 0, SEEK_END);
-        total = (uint64_t)ftell(fp);
-        fclose(fp);
-    }
+    /* Get file size (path is already prepared — always a regular file) */
+    FILE *fp = fopen(filepath, "rb");
+    if (!fp) { push_error("Cannot open: %s", filepath); return -2; }
+    fseek(fp, 0, SEEK_END);
+    uint64_t total = (uint64_t)ftell(fp);
+    fclose(fp);
 
     const char *fname = strrchr(filepath, '/');
     const char *bs    = strrchr(filepath, '\\');
-    if (bs > fname) fname = bs;   /* Windows backslash */
+    if (bs > fname) fname = bs;
     if (fname) fname++; else fname = filepath;
 
     /* Send meta */
@@ -402,21 +383,15 @@ static int tcp_send_file(struct net_context *nc, const char *filepath,
     meta.magic = FT_MAGIC;
     meta.protocol = FT_PROTO_TCP;
     meta.flags = is_dir ? 1 : 0;
-    if (is_dir) {
-        snprintf(meta.filename, sizeof(meta.filename), "%s.tar.gz", fname);
-    } else {
-        strncpy(meta.filename, fname, sizeof(meta.filename) - 1);
-    }
+    strncpy(meta.filename, fname, sizeof(meta.filename) - 1);
     meta.name_len = (uint8_t)strlen(meta.filename);
     meta.total_size = total;
 
     log_write("[SEND] sending meta (name=%s, size=%lu, dir=%d)...\n",
             meta.filename, (unsigned long)total, is_dir);
     if (sock_write_full(fd, &meta, sizeof(meta)) != 0) {
-        log_write("[SEND] FAILED to send meta!\n");
         push_error("Failed to send file metadata");
-        free(tmp_archive);
-        return -1;  /* likely scanner probe */
+        return -1;
     }
     log_write("[SEND] meta sent OK\n");
 
@@ -430,28 +405,21 @@ static int tcp_send_file(struct net_context *nc, const char *filepath,
         resume_offset = resp.resume_offset;
         log_write("[SEND] got meta response, resume_offset=%lu\n", (unsigned long)resume_offset);
     } else {
-        /* No valid response — likely a scanner probe, re-accept */
         log_write("[SEND] no meta response, likely scanner\n");
-        free(tmp_archive);
         return -1;
     }
 
     if (resume_offset >= total && total > 0) {
         log_write("[SEND] already complete on receiver, done\n");
         push_xfer_done();
-        free(tmp_archive);
         return 0;
     }
 
-    /* Send data (works for both files and compressed archives) */
+    /* Send data */
     uint64_t sent = resume_offset;
     {
-        FILE *fp = fopen(actual_path, "rb");
-        if (!fp) {
-            push_error("Cannot open: %s", actual_path);
-            free(tmp_archive);
-            return -2;
-        }
+        FILE *fp = fopen(filepath, "rb");
+        if (!fp) { push_error("Cannot open: %s", filepath); return -2; }
         fseek(fp, (long)resume_offset, SEEK_SET);
         sent = resume_offset;
 
@@ -464,8 +432,6 @@ static int tcp_send_file(struct net_context *nc, const char *filepath,
                 push_error("Send failed at %lu / %lu bytes",
                            (unsigned long)sent, (unsigned long)total);
                 fclose(fp);
-                free(tmp_archive);
-                if (tmp_archive) unlink(tmp_archive);
                 return -2;
             }
             sent += n;
@@ -487,8 +453,6 @@ static int tcp_send_file(struct net_context *nc, const char *filepath,
     }
 
     log_write("[SEND] transfer done, sent=%lu/%lu\n", (unsigned long)sent, (unsigned long)total);
-    if (tmp_archive) unlink(tmp_archive);
-    free(tmp_archive);
     if (sent >= total) push_xfer_done();
     return (sent >= total) ? 0 : -2;
 }
@@ -955,11 +919,17 @@ static void udp_recv_file(struct net_context *nc, const char *savepath)
 
 void transfer_send(struct net_context *nc, const char *filepath, int protocol)
 {
-    log_write("[SEND] transfer_send start, proto=%d, file=%s\n", protocol, filepath);
+    /* Detect if path is a compressed archive (was originally a directory) */
+    bool is_dir = false;
+    size_t plen = strlen(filepath);
+    if (plen > 7 && strcmp(filepath + plen - 7, ".tar.gz") == 0)
+        is_dir = true;
+
+    log_write("[SEND] transfer_send start, proto=%d, file=%s, dir=%d\n",
+              protocol, filepath, is_dir);
     if (protocol == FT_PROTO_TCP) {
-        /* Sender is client — already connected via main thread */
         log_write("[SEND] connected, fd=%d, starting transfer...\n", net_get_fd(nc));
-        tcp_send_file(nc, filepath, 0);
+        tcp_send_file(nc, filepath, 0, is_dir);
         log_write("[SEND] transfer done\n");
     } else {
         udp_send_file(nc, filepath);
@@ -989,4 +959,70 @@ void transfer_recv(struct net_context *nc, const char *savepath, int protocol)
     } else {
         udp_recv_file(nc, savepath);
     }
+}
+
+/* ── Pre-send preparation (compress BEFORE connecting) ────────── */
+
+char *transfer_prepare_send(const char *filepath, uint64_t *out_size)
+{
+    struct stat st;
+    if (stat(filepath, &st) != 0) {
+        log_write("[PREPARE] cannot stat: %s\n", filepath);
+        return NULL;
+    }
+
+    if (!S_ISDIR(st.st_mode)) {
+        /* Regular file — no compression needed */
+        *out_size = (uint64_t)st.st_size;
+        return strdup(filepath);
+    }
+
+    /* Directory — compress now, before connecting */
+    log_write("[PREPARE] compressing directory: %s\n", filepath);
+    push_progress(0, 1);  /* signal "preparing" */
+
+    char tmpfile[256];
+#ifdef _WIN32
+    snprintf(tmpfile, sizeof(tmpfile), "lanft_%d.tar.gz", (int)GetCurrentProcessId());
+#else
+    snprintf(tmpfile, sizeof(tmpfile), "/tmp/lanft_%d.tar.gz", (int)getpid());
+#endif
+
+    struct archive *a = archive_write_new();
+    archive_write_add_filter_gzip(a);
+    archive_write_set_format_pax_restricted(a);
+    if (archive_write_open_filename(a, tmpfile) != ARCHIVE_OK) {
+        archive_write_free(a);
+        log_write("[PREPARE] failed to create archive\n");
+        return NULL;
+    }
+
+    const char *dirname = strrchr(filepath, '/');
+    if (dirname) dirname++; else dirname = filepath;
+    walk_and_add(a, filepath, dirname);
+
+    archive_write_close(a);
+    archive_write_free(a);
+
+    if (stat(tmpfile, &st) != 0) {
+        unlink(tmpfile);
+        log_write("[PREPARE] archive stat failed\n");
+        return NULL;
+    }
+
+    *out_size = (uint64_t)st.st_size;
+    log_write("[PREPARE] compressed to %s (%lu bytes)\n",
+              tmpfile, (unsigned long)*out_size);
+    return strdup(tmpfile);
+}
+
+void transfer_cleanup_send(char *prepared_path, const char *original_path)
+{
+    if (!prepared_path || !original_path) return;
+    if (strcmp(prepared_path, original_path) != 0) {
+        /* It's a temp archive — delete it */
+        unlink(prepared_path);
+        log_write("[CLEANUP] removed temp archive: %s\n", prepared_path);
+    }
+    free(prepared_path);
 }

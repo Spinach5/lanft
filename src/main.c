@@ -41,31 +41,39 @@ typedef struct {
 static void *send_thread_func(void *arg)
 {
     send_thread_args *a = (send_thread_args *)arg;
-    log_write("[SEND] thread started, connecting to receiver %s:%d...\n",
+
+    /* Prepare (compress) before connecting — avoids receiver timeout */
+    uint64_t total_size = 0;
+    char *send_path = transfer_prepare_send(a->filepath, &total_size);
+    if (!send_path) {
+        log_write("[SEND] failed to prepare file\n");
+        net_destroy(a->nc);
+        free(a);
+        return NULL;
+    }
+
+    log_write("[SEND] prepared, connecting to receiver %s:%d...\n",
             a->target_ip, a->target_port);
-    /* 重连循环：若未取消，则尝试连接接收端 */
     while (!net_is_cancelled(a->nc)) {
         if (a->protocol == FT_PROTO_TCP) {
-            /* TCP模式：主动连接到接收端 */
             if (net_connect(a->nc, a->target_ip, a->target_port) == 0) {
                 log_write("[SEND] connected to receiver!\n");
                 break;
             }
         } else {
-            /* UDP模式：绑定本地端口并设置对端地址 */
             if (net_udp_bind(a->nc, a->target_port) == 0) {
                 net_udp_set_peer(a->nc, a->target_ip, a->target_port);
                 break;
             }
         }
-        usleep(500000); /* 等待0.5秒后重试 */
+        usleep(500000);
     }
-    /* 若未被取消，则开始实际传输 */
     if (!net_is_cancelled(a->nc)) {
-        transfer_send(a->nc, a->filepath, a->protocol);
+        transfer_send(a->nc, send_path, a->protocol);
     }
-    net_destroy(a->nc); /* 释放网络上下文 */
-    free(a);            /* 释放参数结构体 */
+    net_destroy(a->nc);
+    transfer_cleanup_send(send_path, a->filepath);
+    free(a);
     return NULL;
 }
 

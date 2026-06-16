@@ -42,6 +42,15 @@ void transfer_set_overwrite_policy(const char *policy);  /* "rename"|"overwrite"
 void transfer_set_bandwidth_limit(int limit);            /* bytes/sec, 0=unlimited */
 void transfer_set_max_connections(int max_conn);         /* 0=unlimited */
 
+/* Prepare a path for sending. If it's a directory, compress to a temp .tar.gz.
+   Returns the actual path to send (original or compressed temp file).
+   Caller must free *out_path if it differs from filepath.
+   out_size receives the total byte count. Reports progress via callback. */
+char *transfer_prepare_send(const char *filepath, uint64_t *out_size);
+
+/* Clean up after send — deletes temp archive if path was compressed. */
+void transfer_cleanup_send(char *prepared_path, const char *original_path);
+
 /* Send a file over the network.
    nc must already be connected/listening.
    Runs the transfer loop — call from a worker thread. */

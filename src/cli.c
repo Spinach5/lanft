@@ -491,10 +491,18 @@ int cli_main(int argc, char **argv)
     cli_ret = 1;
 
     if (cfg.mode == 0) {
-        /* Send */
+        /* Send — prepare (compress) before connecting */
+        uint64_t total_size = 0;
+        char *send_path = transfer_prepare_send(g_cli_path, &total_size);
+        if (!send_path) {
+            log_write("Error: failed to prepare file for sending\n");
+            return 1;
+        }
+
         struct net_context *nc = net_create(cfg.protocol);
         if (!nc) {
             log_write("Error: failed to create network context\n");
+            transfer_cleanup_send(send_path, g_cli_path);
             return 1;
         }
 
@@ -511,7 +519,7 @@ int cli_main(int argc, char **argv)
                 }
             }
             tries++;
-            log_write("\r  Retrying... (%d/60)", tries);
+            fprintf(stderr, "\r  Retrying... (%d/60)", tries);
             fflush(stderr);
             sleep(1);
         }
@@ -519,11 +527,13 @@ int cli_main(int argc, char **argv)
             log_write("\nError: failed to connect to %s:%d\n",
                     cfg.address, cfg.port);
             net_destroy(nc);
+            transfer_cleanup_send(send_path, g_cli_path);
             return 1;
         }
-        log_write("\nConnected! Sending %s...\n", g_cli_path);
-        transfer_send(nc, g_cli_path, cfg.protocol);
+        log_write("\nConnected! Sending %s...\n", send_path);
+        transfer_send(nc, send_path, cfg.protocol);
         net_destroy(nc);
+        transfer_cleanup_send(send_path, g_cli_path);
         return cli_ret;
     }
 
