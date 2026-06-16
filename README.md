@@ -7,13 +7,13 @@
 
 English | [中文](./README_CN.md)
 
-A fast, reliable LAN file transfer tool with both GUI (SDL2) and CLI modes. Supports TCP/UDP, directory compression, resume, device scanning, and transfer history.
+A fast, reliable LAN file transfer tool with both GUI (SDL3) and CLI modes. Supports TCP/UDP, directory compression, resume, device scanning, and transfer history.
 
 ---
 
 ## Features
 
-- **Dual mode**: GUI (SDL2) and CLI (terminal)
+- **Dual mode**: GUI (SDL3) and CLI (terminal)
 - **TCP & UDP**: Reliable streaming or custom ACK-based UDP with retransmission
 - **Directory transfer**: Auto-compress with libarchive (tar.gz), auto-extract on receive
 - **Resume support**: Detects partial files and continues from breakpoint
@@ -28,13 +28,13 @@ A fast, reliable LAN file transfer tool with both GUI (SDL2) and CLI modes. Supp
 
 | CMake Option | Default | Description |
 |-------------|---------|-------------|
-| `BUILD_GUI` | `ON` | Build with SDL2 GUI. Set `OFF` for CLI-only (no SDL2 dependency, smaller binary). |
+| `BUILD_GUI` | `ON` | Build with SDL3 GUI. Set `OFF` for CLI-only (no SDL3 dependency, smaller binary). |
 
 ```bash
 # Full build (GUI + CLI)
 cmake .. -DBUILD_GUI=ON
 
-# CLI-only (no SDL2, ideal for servers/embedded)
+# CLI-only (no SDL3, ideal for servers/embedded)
 cmake .. -DBUILD_GUI=OFF
 ```
 
@@ -67,7 +67,7 @@ sudo cp lanft /usr/local/bin/
 
 ```bash
 sudo dnf install -y gcc cmake git \
-    SDL2-devel libwebsockets-devel libarchive-devel
+    SDL3-devel libwebsockets-devel libarchive-devel
 # Same build steps as Debian/Ubuntu
 ```
 
@@ -84,7 +84,7 @@ sudo pacman -S --needed base-devel cmake git \
 ```bash
 # Prerequisites (MSYS2 UCRT64 terminal)
 pacman -S mingw-w64-ucrt-x86_64-{cmake,make,gcc,git} \
-          mingw-w64-ucrt-x86_64-{SDL2,libwebsockets,libarchive}
+          mingw-w64-ucrt-x86_64-{SDL3,libwebsockets,libarchive}
 
 # Build (GUI)
 git clone https://github.com/Spinach5/lan-file-transfer.git lanft
@@ -92,7 +92,7 @@ cd lanft && mkdir build && cd build
 cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 
-# CLI-only (no SDL2 needed)
+# CLI-only (no SDL3 needed)
 cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF
 make -j$(nproc)
 ```
@@ -162,21 +162,21 @@ websocket/
     ├── scanner.h / scanner.c   # Multi-threaded LAN TCP Connect scanner
     ├── transfer.h / transfer.c # File send/recv, meta handshake, resume
     ├── protocol.h              # Shared constants, structs, event types
-    └── ui.h / ui.c             # SDL2 GUI: tabs, buttons, progress bars
+    └── ui.h / ui.c             # SDL3 GUI: tabs, buttons, progress bars
 ```
 
 ### Module Responsibilities
 
 | Module | Purpose | Dependencies |
 |--------|---------|-------------|
-| `main.c` | SDL2 window, event loop, tab state, thread dispatch | ui, network, scanner, transfer |
-| `main_cli.c` | Minimal main for CLI-only builds (no SDL2) | cli |
+| `main.c` | SDL3 window, event loop, tab state, thread dispatch | ui, network, scanner, transfer |
+| `main_cli.c` | Minimal main for CLI-only builds (no SDL3) | cli |
 | `cli.c` | CLI arg parsing (`getopt_long`), progress bar, sync transfer | network, transfer |
 | `compat.h` | Cross-platform abstractions (socket_t, Winsock, sleep, gettimeofday) | — |
 | `network.c` | TCP via lws raw socket; UDP via BSD `sendto`/`recvfrom` | libwebsockets, protocol.h |
 | `scanner.c` | Collects all non-loopback subnets, 32-thread TCP connect scan | pthreads |
 | `transfer.c` | Meta handshake, chunked send/recv, resume offset, libarchive compression | network.h, protocol.h, libarchive |
-| `ui.c` | Tabbed pages (Scan/Send/Recv/History), text fields, progress bars, 8×16 bitmap font | SDL2 |
+| `ui.c` | Tabbed pages (Scan/Send/Recv/History), text fields, progress bars, 8×16 bitmap font | SDL3 |
 | `protocol.h` | Magic bytes, default port, packet headers, event payload structs | — |
 
 ### Files Compiled by Mode
@@ -199,7 +199,7 @@ websocket/
 
 | Library | Required | Version | Purpose |
 |---------|:---:|---------|---------|
-| SDL2 | GUI only | ≥ 2.0 | GUI rendering & event handling |
+| SDL3 | GUI only | ≥ 2.0 | GUI rendering & event handling |
 | libwebsockets | Yes | ≥ 4.0 | TCP raw socket management |
 | libarchive | Yes | ≥ 3.0 | Directory compression/extraction (tar.gz) |
 | pthreads | Yes | (system) | Multi-threading |
@@ -215,7 +215,7 @@ websocket/
 ./lanft --gui
 ```
 
-Opens SDL2 window with four tabs:
+Opens SDL3 window with four tabs:
 
 | Tab | Function |
 |-----|----------|
@@ -257,7 +257,7 @@ lanft --history
 
 | Short | Long | Default | Description |
 |-------|------|---------|-------------|
-| | `--gui` | — | Launch SDL2 GUI (CLI is default) |
+| | `--gui` | — | Launch SDL3 GUI (CLI is default) |
 | `-h` | `--help` | — | Print help and exit |
 | `-v` | `--version` | — | Print version and exit |
 | `-S` | — | — | Shorthand for `--mode=S` (send) |

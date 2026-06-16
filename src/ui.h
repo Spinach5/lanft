@@ -1,19 +1,19 @@
 #ifndef UI_H
 #define UI_H
 
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include "config.h"
 
 /* ── SDL custom event codes ────────────────────────────────── */
-#define USEREVENT_SCAN_FOUND        (SDL_USEREVENT + 1)
-#define USEREVENT_SCAN_DONE         (SDL_USEREVENT + 2)
-#define USEREVENT_PROGRESS          (SDL_USEREVENT + 3)
-#define USEREVENT_XFER_DONE         (SDL_USEREVENT + 4)
-#define USEREVENT_ERROR             (SDL_USEREVENT + 5)
-#define USEREVENT_ZENITY_RESULT     (SDL_USEREVENT + 6)
-#define USEREVENT_INCOMING_TRANSFER (SDL_USEREVENT + 7)
+#define USEREVENT_SCAN_FOUND        (SDL_EVENT_USER + 1)
+#define USEREVENT_SCAN_DONE         (SDL_EVENT_USER + 2)
+#define USEREVENT_PROGRESS          (SDL_EVENT_USER + 3)
+#define USEREVENT_XFER_DONE         (SDL_EVENT_USER + 4)
+#define USEREVENT_ERROR             (SDL_EVENT_USER + 5)
+#define USEREVENT_ZENITY_RESULT     (SDL_EVENT_USER + 6)
+#define USEREVENT_INCOMING_TRANSFER (SDL_EVENT_USER + 7)
 
 /* ── Color scheme (dark theme) ─────────────────────────────── */
 #define COLOR_BG        ((SDL_Color){0x1e, 0x1e, 0x2e, 255})
@@ -39,6 +39,9 @@ enum {
 
 struct app_state {
     int current_tab;
+
+    /* SDL3: 窗口指针供 SDL_StartTextInput/SDL_StopTextInput 使用 */
+    SDL_Window *window;
 
     /* Scan page */
     char scan_status[256];

@@ -17,7 +17,7 @@
 #include <archive.h>
 #include <archive_entry.h>
 #ifdef BUILD_GUI
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #endif
 
 /* ── Callbacks ─────────────────────────────────────────────── */
@@ -132,7 +132,7 @@ static void push_error(const char *fmt, ...)
     struct event_error *err = calloc(1, sizeof(*err));
     if (!err) return;
     strncpy(err->message, buf, sizeof(err->message) - 1);
-    push_event(SDL_USEREVENT + 5, err);
+    push_event(SDL_EVENT_USER + 5, err);
 #else
     log_write("Error: %s\n", buf);
 #endif
@@ -146,7 +146,7 @@ static void push_progress(uint64_t done, uint64_t total)
     if (!p) return;
     p->bytes_done = done;
     p->bytes_total = total;
-    push_event(SDL_USEREVENT + 3, p);
+    push_event(SDL_EVENT_USER + 3, p);
 #endif
 }
 
@@ -154,7 +154,7 @@ static void push_xfer_done(void)
 {
     if (g_done_cb) { g_done_cb(); return; }
 #ifdef BUILD_GUI
-    push_event(SDL_USEREVENT + 4, NULL);
+    push_event(SDL_EVENT_USER + 4, NULL);
 #endif
 }
 

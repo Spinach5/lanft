@@ -6,7 +6,7 @@ section: "net"
 priority: "optional"
 
 description: >
-  A fast, reliable LAN file transfer tool with both GUI (SDL2) and CLI modes.
+  A fast, reliable LAN file transfer tool with both GUI (SDL3) and CLI modes.
   Supports TCP/UDP, directory compression, resume, device scanning, and
   transfer history.
 

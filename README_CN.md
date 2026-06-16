@@ -7,13 +7,13 @@
 
 [English](./README.md) | 中文
 
-快速、可靠的局域网文件传输工具，支持 GUI（SDL2）和 CLI 两种模式。支持 TCP/UDP、目录压缩传输、断点续传、设备扫描和传输历史。
+快速、可靠的局域网文件传输工具，支持 GUI（SDL3）和 CLI 两种模式。支持 TCP/UDP、目录压缩传输、断点续传、设备扫描和传输历史。
 
 ---
 
 ## 特性
 
-- **双模式**：GUI（SDL2 图形界面）和 CLI（命令行终端）
+- **双模式**：GUI（SDL3 图形界面）和 CLI（命令行终端）
 - **TCP & UDP**：可靠流式传输 或 自定义 ACK 确认重传
 - **目录传输**：libarchive 自动压缩为 tar.gz，接收端自动解压
 - **断点续传**：检测部分文件，从断点继续
@@ -28,13 +28,13 @@
 
 | CMake 选项 | 默认值 | 说明 |
 |-----------|--------|------|
-| `BUILD_GUI` | `ON` | 构建 SDL2 图形界面。设为 `OFF` 则仅 CLI（无 SDL2 依赖，体积更小） |
+| `BUILD_GUI` | `ON` | 构建 SDL3 图形界面。设为 `OFF` 则仅 CLI（无 SDL3 依赖，体积更小） |
 
 ```bash
 # 完整构建（GUI + CLI）
 cmake .. -DBUILD_GUI=ON
 
-# 仅 CLI（无 SDL2，适合服务器/嵌入式）
+# 仅 CLI（无 SDL3，适合服务器/嵌入式）
 cmake .. -DBUILD_GUI=OFF
 ```
 
@@ -55,7 +55,7 @@ cd lanft && mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 
-# 仅 CLI（不需要 SDL2）
+# 仅 CLI（不需要 SDL3）
 cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF
 make -j$(nproc)
 
@@ -67,7 +67,7 @@ sudo cp lanft /usr/local/bin/
 
 ```bash
 sudo dnf install -y gcc cmake git \
-    SDL2-devel libwebsockets-devel libarchive-devel
+    SDL3-devel libwebsockets-devel libarchive-devel
 # 构建步骤同上
 ```
 
@@ -84,7 +84,7 @@ sudo pacman -S --needed base-devel cmake git \
 ```bash
 # 安装依赖（MSYS2 UCRT64 终端）
 pacman -S mingw-w64-ucrt-x86_64-{cmake,make,gcc,git} \
-          mingw-w64-ucrt-x86_64-{SDL2,libwebsockets,libarchive}
+          mingw-w64-ucrt-x86_64-{SDL3,libwebsockets,libarchive}
 
 # 构建（GUI）
 git clone https://github.com/Spinach5/lan-file-transfer.git lanft
@@ -92,7 +92,7 @@ cd lanft && mkdir build && cd build
 cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 
-# 仅 CLI（不需要 SDL2）
+# 仅 CLI（不需要 SDL3）
 cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF
 make -j$(nproc)
 ```
@@ -163,7 +163,7 @@ websocket/
     ├── scanner.h / scanner.c   # 多线程局域网 TCP Connect 扫描
     ├── transfer.h / transfer.c # 文件收发、元数据握手、断点续传
     ├── protocol.h              # 共享常量和结构体
-    └── ui.h / ui.c             # SDL2 GUI：标签页、按钮、进度条
+    └── ui.h / ui.c             # SDL3 GUI：标签页、按钮、进度条
 ```
 
 ### 按构建模式编译的文件
@@ -178,7 +178,7 @@ websocket/
 | `network.c` | ✅ | ✅ |
 | `transfer.c` | ✅ | ✅ |
 | **二进制大小** | ~60 KB | ~40 KB |
-| **链接 SDL2** | 是 | 否 |
+| **链接 SDL3** | 是 | 否 |
 
 ---
 
@@ -186,7 +186,7 @@ websocket/
 
 | 库 | 是否必需 | 版本 | 用途 |
 |------|:---:|---------|------|
-| SDL2 | 仅 GUI | ≥ 2.0 | 图形界面渲染和事件处理 |
+| SDL3 | 仅 GUI | ≥ 2.0 | 图形界面渲染和事件处理 |
 | libwebsockets | 必需 | ≥ 4.0 | TCP 原始套接字管理 |
 | libarchive | 必需 | ≥ 3.0 | 目录压缩/解压 (tar.gz) |
 | pthreads | 必需 | 系统自带 | 多线程 |
@@ -202,7 +202,7 @@ websocket/
 ./lanft --gui
 ```
 
-打开 SDL2 窗口，包含四个标签页：
+打开 SDL3 窗口，包含四个标签页：
 
 | 标签页 | 功能 |
 |--------|------|
@@ -244,7 +244,7 @@ lanft --history
 
 | 短选项 | 长选项 | 默认值 | 说明 |
 |-------|------|--------|------|
-| | `--gui` | — | 启动 SDL2 图形界面（CLI 为默认） |
+| | `--gui` | — | 启动 SDL3 图形界面（CLI 为默认） |
 | `-h` | `--help` | — | 打印帮助并退出 |
 | `-v` | `--version` | — | 打印版本号并退出 |
 | `-S` | — | — | `--mode=S` 的缩写（发送） |

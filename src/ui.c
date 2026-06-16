@@ -10,9 +10,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include <SDL2/SDL.h>
-#ifdef HAVE_SDL2_TTF
-#include <SDL2/SDL_ttf.h>
+#include <SDL3/SDL.h>
+#ifdef HAVE_SDL3_TTF
+#include <SDL3/SDL_ttf.h>
 #endif
 
 /* ── Font system ──────────────────────────────────────────────── */
@@ -23,7 +23,7 @@
 #define FONT_START   32
 
 /* TTF mode globals */
-#ifdef HAVE_SDL2_TTF
+#ifdef HAVE_SDL3_TTF
 static TTF_Font *ttf_font = NULL;
 static int       ttf_ptsize = 16;
 
@@ -315,7 +315,7 @@ static const unsigned char font_8x16[95][16] = {
 int ui_init(void)
 {
     memset(glyph_tex, 0, sizeof(glyph_tex));
-#ifdef HAVE_SDL2_TTF
+#ifdef HAVE_SDL3_TTF
     if (TTF_Init() == 0) {
         char *font_path = find_system_font();
         if (font_path) {
@@ -343,7 +343,7 @@ void ui_cleanup(void)
         if (glyph_tex[i]) SDL_DestroyTexture(glyph_tex[i]);
         glyph_tex[i] = NULL;
     }
-#ifdef HAVE_SDL2_TTF
+#ifdef HAVE_SDL3_TTF
     clear_tex_cache();
     if (ttf_font) { TTF_CloseFont(ttf_font); ttf_font = NULL; }
     TTF_Quit();
@@ -355,7 +355,7 @@ void ui_cleanup(void)
 void ui_draw_rect(SDL_Renderer *r, int x, int y, int w, int h, SDL_Color c)
 {
     SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
-    SDL_Rect rect = {x, y, w, h};
+    SDL_FRect rect = {(float)x, (float)y, (float)w, (float)h};
     SDL_RenderFillRect(r, &rect);
 }
 
@@ -366,8 +366,8 @@ static void ensure_glyph(SDL_Renderer *r, int idx)
     if (glyph_tex[idx]) return;
 
     /* Create a surface with the glyph */
-    SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormat(0, FONT_W, FONT_H, 32,
-        SDL_PIXELFORMAT_RGBA32);
+    /* SDL3: SDL_CreateSurface 替代 SDL_CreateRGBSurfaceWithFormat */
+    SDL_Surface *surf = SDL_CreateSurface(FONT_W, FONT_H, SDL_PIXELFORMAT_RGBA32);
     if (!surf) return;
 
     const unsigned char *rows = font_8x16[idx];
@@ -384,7 +384,7 @@ static void ensure_glyph(SDL_Renderer *r, int idx)
     }
 
     glyph_tex[idx] = SDL_CreateTextureFromSurface(r, surf);
-    SDL_FreeSurface(surf);
+    SDL_DestroySurface(surf);
 
     /* Set texture blend mode so we can color it */
     SDL_SetTextureBlendMode(glyph_tex[idx], SDL_BLENDMODE_BLEND);
@@ -395,7 +395,7 @@ void ui_draw_text(SDL_Renderer *r, const char *text, int x, int y, SDL_Color c)
 {
     if (!text || !text[0]) return;
 
-#ifdef HAVE_SDL2_TTF
+#ifdef HAVE_SDL3_TTF
     if (ttf_font) {
         int tw, th;
         SDL_Texture *tex = find_cached_tex(r, text, c, &tw, &th);
@@ -404,12 +404,12 @@ void ui_draw_text(SDL_Renderer *r, const char *text, int x, int y, SDL_Color c)
             if (surf) {
                 tex = SDL_CreateTextureFromSurface(r, surf);
                 if (tex) { cache_tex(text, c, tex, surf->w, surf->h); tw = surf->w; th = surf->h; }
-                SDL_FreeSurface(surf);
+                SDL_DestroySurface(surf);
             }
         }
         if (tex) {
-            SDL_Rect dst = {x, y, tw, th};
-            SDL_RenderCopy(r, tex, NULL, &dst);
+            SDL_FRect dst = {(float)x, (float)y, (float)tw, (float)th};
+            SDL_RenderTexture(r, tex, NULL, &dst);
         }
         return;
     }
@@ -426,8 +426,8 @@ void ui_draw_text(SDL_Renderer *r, const char *text, int x, int y, SDL_Color c)
         ensure_glyph(r, idx);
         if (glyph_tex[idx]) {
             SDL_SetTextureColorMod(glyph_tex[idx], c.r, c.g, c.b);
-            SDL_Rect dst = {cx, y, FONT_W, FONT_H};
-            SDL_RenderCopy(r, glyph_tex[idx], NULL, &dst);
+            SDL_FRect dst = {(float)cx, (float)y, (float)FONT_W, (float)FONT_H};
+            SDL_RenderTexture(r, glyph_tex[idx], NULL, &dst);
         }
         cx += FONT_W + 1;
     }
@@ -435,7 +435,7 @@ void ui_draw_text(SDL_Renderer *r, const char *text, int x, int y, SDL_Color c)
 
 void ui_text_size(const char *text, int *w, int *h)
 {
-#ifdef HAVE_SDL2_TTF
+#ifdef HAVE_SDL3_TTF
     if (ttf_font && text && text[0]) {
         int tw, th;
         if (TTF_SizeUTF8(ttf_font, text, &tw, &th) == 0) {
@@ -465,8 +465,8 @@ static void ui_text_field(SDL_Renderer *r, int x, int y, int w, int h,
         /* Grayed out — disabled state */
         ui_draw_rect(r, x, y, w, h, COLOR_BG);
         SDL_SetRenderDrawColor(r, COLOR_DIM.r, COLOR_DIM.g, COLOR_DIM.b, 100);
-        SDL_Rect brect = {x, y, w, h};
-        SDL_RenderDrawRect(r, &brect);
+        SDL_FRect brect = {x, y, w, h};
+        SDL_RenderRect(r, &brect);
         ui_draw_text(r, text && text[0] ? text : placeholder, x + 6, y + (h - FONT_H) / 2, COLOR_DIM);
         return;
     }
@@ -479,12 +479,12 @@ static void ui_text_field(SDL_Renderer *r, int x, int y, int w, int h,
 
     /* Border (2px when focused) */
     SDL_SetRenderDrawColor(r, border.r, border.g, border.b, border.a);
-    SDL_Rect brect = {x, y, w, h};
-    SDL_RenderDrawRect(r, &brect);
+    SDL_FRect brect = {x, y, w, h};
+    SDL_RenderRect(r, &brect);
     if (focused) {
         /* Double border for emphasis */
-        SDL_Rect brect2 = {x + 1, y + 1, w - 2, h - 2};
-        SDL_RenderDrawRect(r, &brect2);
+        SDL_FRect brect2 = {x + 1, y + 1, w - 2, h - 2};
+        SDL_RenderRect(r, &brect2);
     }
 
     /* Text */
@@ -509,7 +509,7 @@ static void ui_text_field(SDL_Renderer *r, int x, int y, int w, int h,
             ui_text_size(before, &cw, &ch);
             int cx = tx + cw;
             SDL_SetRenderDrawColor(r, COLOR_TEXT.r, COLOR_TEXT.g, COLOR_TEXT.b, COLOR_TEXT.a);
-            SDL_RenderDrawLine(r, cx, y + 4, cx, y + h - 4);
+            SDL_RenderLine(r, cx, y + 4, cx, y + h - 4);
         }
     }
 }
@@ -525,7 +525,7 @@ static bool ui_text_field_click(struct app_state *st, int mx, int my,
     st->active_input = field_id;
     strncpy(st->input_buffer, value, sizeof(st->input_buffer) - 1);
     st->input_cursor = strlen(st->input_buffer);
-    SDL_StartTextInput();
+    SDL_StartTextInput(st->window);
     return true;
 }
 
@@ -541,8 +541,8 @@ static bool ui_button(SDL_Renderer *r, const char *label, int x, int y, int w, i
     ui_draw_rect(r, x, y, w, h, bg);
     /* Border */
     SDL_SetRenderDrawColor(r, border.r, border.g, border.b, border.a);
-    SDL_Rect brect = {x, y, w, h};
-    SDL_RenderDrawRect(r, &brect);
+    SDL_FRect brect = {x, y, w, h};
+    SDL_RenderRect(r, &brect);
 
     int tw, th;
     ui_text_size(label, &tw, &th);
@@ -569,7 +569,7 @@ static void render_tab_bar(SDL_Renderer *r, struct app_state *st)
                      i * tab_w + (tab_w - tw) / 2, (36 - th) / 2, txt);
     }
     SDL_SetRenderDrawColor(r, COLOR_DIM.r, COLOR_DIM.g, COLOR_DIM.b, COLOR_DIM.a);
-    SDL_RenderDrawLine(r, 0, 36, st->window_w, 36);
+    SDL_RenderLine(r, 0, 36, st->window_w, 36);
 }
 
 /* ── Scan page ─────────────────────────────────────────────── */
@@ -675,8 +675,8 @@ static void render_send_page(SDL_Renderer *r, struct app_state *st)
     if (!dis) {
         SDL_Color sel = COLOR_ACCENT;
         SDL_SetRenderDrawColor(r, sel.r, sel.g, sel.b, sel.a);
-        SDL_Rect pr = {st->send_protocol == 0 ? 120 : 190, y, 60, 28};
-        SDL_RenderDrawRect(r, &pr);
+        SDL_FRect pr = {st->send_protocol == 0 ? 120 : 190, y, 60, 28};
+        SDL_RenderRect(r, &pr);
     }
     y += 40;
 
@@ -760,8 +760,8 @@ static void render_receive_page(SDL_Renderer *r, struct app_state *st)
     if (!rdis) {
         SDL_Color sel = COLOR_ACCENT;
         SDL_SetRenderDrawColor(r, sel.r, sel.g, sel.b, sel.a);
-        SDL_Rect pr = {st->recv_protocol == 0 ? 120 : 190, y, 60, 28};
-        SDL_RenderDrawRect(r, &pr);
+        SDL_FRect pr = {st->recv_protocol == 0 ? 120 : 190, y, 60, 28};
+        SDL_RenderRect(r, &pr);
     }
     y += 40;
 
@@ -871,7 +871,7 @@ static void render_history_page(SDL_Renderer *r, struct app_state *st)
     }
     /* Separator */
     SDL_SetRenderDrawColor(r, COLOR_DIM.r, COLOR_DIM.g, COLOR_DIM.b, COLOR_DIM.a);
-    SDL_RenderDrawLine(r, 0, header_y + row_h, W, header_y + row_h);
+    SDL_RenderLine(r, 0, header_y + row_h, W, header_y + row_h);
 
     /* Rows */
     int list_start = header_y + row_h + 2;
@@ -1141,7 +1141,7 @@ void ui_render(SDL_Renderer *renderer, struct app_state *state)
     /* Clip page content to stay below tab bar and above status bar */
     {
         SDL_Rect clip = {0, 36, state->window_w, state->window_h - 64};
-        SDL_RenderSetClipRect(renderer, &clip);
+        SDL_SetRenderClipRect(renderer, &clip);
     }
     switch (state->current_tab) {
     case TAB_SCAN:     render_scan_page(renderer, state); break;
@@ -1150,7 +1150,7 @@ void ui_render(SDL_Renderer *renderer, struct app_state *state)
     case TAB_HISTORY:  render_history_page(renderer, state); break;
     case TAB_SETTINGS: render_settings_page(renderer, state); break;
     }
-    SDL_RenderSetClipRect(renderer, NULL);
+    SDL_SetRenderClipRect(renderer, NULL);
 
     /* Modal overlay — error messages */
     if (state->modal_visible) {
@@ -1190,7 +1190,7 @@ void ui_render(SDL_Renderer *renderer, struct app_state *state)
     int sh = state->window_h - 28;
     ui_draw_rect(renderer, 0, sh, state->window_w, 28, COLOR_SURFACE);
     SDL_SetRenderDrawColor(renderer, COLOR_DIM.r, COLOR_DIM.g, COLOR_DIM.b, COLOR_DIM.a);
-    SDL_RenderDrawLine(renderer, 0, sh, state->window_w, sh);
+    SDL_RenderLine(renderer, 0, sh, state->window_w, sh);
     ui_draw_text(renderer, state->status_text, 10, sh + 6, COLOR_DIM);
 
     SDL_RenderPresent(renderer);
@@ -1201,13 +1201,13 @@ void ui_render(SDL_Renderer *renderer, struct app_state *state)
 bool ui_handle_event(SDL_Event *e, struct app_state *st)
 {
     int mx = 0, my = 0;
-    if (e->type == SDL_MOUSEBUTTONDOWN || e->type == SDL_MOUSEBUTTONUP) {
+    if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN || e->type == SDL_EVENT_MOUSE_BUTTON_UP) {
         mx = e->button.x;
         my = e->button.y;
     }
 
     /* Tab bar clicks */
-    if (e->type == SDL_MOUSEBUTTONDOWN && my < 36) {
+    if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN && my < 36) {
         int tab_w = st->window_w / TAB_COUNT;
         st->current_tab = mx / tab_w;
         return true;
@@ -1215,7 +1215,7 @@ bool ui_handle_event(SDL_Event *e, struct app_state *st)
 
     /* Modal overlay — error */
     if (st->modal_visible) {
-        if (e->type == SDL_MOUSEBUTTONDOWN) {
+        if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
             int bx = st->window_w / 2 - 200 + 160;
             int by = st->window_h / 2 - 60 + 70;
             if (ui_in_rect(mx, my, bx, by, 80, 30)) {
@@ -1227,7 +1227,7 @@ bool ui_handle_event(SDL_Event *e, struct app_state *st)
 
     /* Modal overlay — incoming transfer prompt */
     if (st->incoming_active) {
-        if (e->type == SDL_MOUSEBUTTONDOWN) {
+        if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
             int modal_mx = st->window_w / 2 - 200;
             int modal_my = st->window_h / 2 - 80;
             /* Accept button */
@@ -1247,7 +1247,7 @@ bool ui_handle_event(SDL_Event *e, struct app_state *st)
     }
 
     /* Per-tab clicks */
-    if (e->type == SDL_MOUSEBUTTONDOWN) {
+    if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
         switch (st->current_tab) {
         case TAB_SCAN:
             if (ui_in_rect(mx, my, 20, 46, 100, 32)) {
@@ -1293,7 +1293,7 @@ bool ui_handle_event(SDL_Event *e, struct app_state *st)
                     st->send_progress_done = 0;
                     st->send_progress_total = 0;
                     st->active_input = 0;
-                    SDL_StopTextInput();
+                    SDL_StopTextInput(st->window);
                     strncpy(st->status_text, "Waiting for receiver...", sizeof(st->status_text) - 1);
                     return true;
                 }
@@ -1336,7 +1336,7 @@ bool ui_handle_event(SDL_Event *e, struct app_state *st)
                     st->recv_progress_done = 0;
                     st->recv_progress_total = 0;
                     st->active_input = 0;
-                    SDL_StopTextInput();
+                    SDL_StopTextInput(st->window);
                     strncpy(st->status_text, "Waiting for sender...", sizeof(st->status_text) - 1);
                     return true;
                 }
@@ -1366,7 +1366,7 @@ bool ui_handle_event(SDL_Event *e, struct app_state *st)
                     st->recv_progress_done = 0;
                     st->recv_progress_total = 0;
                     st->active_input = 0;
-                    SDL_StopTextInput();
+                    SDL_StopTextInput(st->window);
                     strncpy(st->status_text, "Waiting for sender...", sizeof(st->status_text) - 1);
                     return true;
                 }
@@ -1453,7 +1453,7 @@ bool ui_handle_event(SDL_Event *e, struct app_state *st)
     /* (defined once, used by TEXTINPUT, BACKSPACE, DELETE, RETURN) */
 
     /* Keyboard input for text fields */
-    if (e->type == SDL_TEXTINPUT && st->active_input > 0) {
+    if (e->type == SDL_EVENT_TEXT_INPUT && st->active_input > 0) {
         size_t len = strlen(st->input_buffer);
         size_t tlen = strlen(e->text.text);
         if (len + tlen < sizeof(st->input_buffer) - 1) {
@@ -1467,11 +1467,11 @@ bool ui_handle_event(SDL_Event *e, struct app_state *st)
         goto sync_field;
     }
 
-    if (e->type == SDL_KEYDOWN) {
+    if (e->type == SDL_EVENT_KEY_DOWN) {
         int len = strlen(st->input_buffer);
 
         /* Backspace */
-        if (e->key.keysym.sym == SDLK_BACKSPACE && st->active_input > 0) {
+        if (e->key.key == SDLK_BACKSPACE && st->active_input > 0) {
             if (len > 0 && st->input_cursor > 0) {
                 memmove(st->input_buffer + st->input_cursor - 1,
                         st->input_buffer + st->input_cursor,
@@ -1482,7 +1482,7 @@ bool ui_handle_event(SDL_Event *e, struct app_state *st)
         }
 
         /* Delete */
-        if (e->key.keysym.sym == SDLK_DELETE && st->active_input > 0) {
+        if (e->key.key == SDLK_DELETE && st->active_input > 0) {
             if (st->input_cursor < len) {
                 memmove(st->input_buffer + st->input_cursor,
                         st->input_buffer + st->input_cursor + 1,
@@ -1492,27 +1492,27 @@ bool ui_handle_event(SDL_Event *e, struct app_state *st)
         }
 
         /* Cursor movement */
-        if (e->key.keysym.sym == SDLK_LEFT && st->active_input > 0) {
+        if (e->key.key == SDLK_LEFT && st->active_input > 0) {
             if (st->input_cursor > 0) st->input_cursor--;
             return true;
         }
-        if (e->key.keysym.sym == SDLK_RIGHT && st->active_input > 0) {
+        if (e->key.key == SDLK_RIGHT && st->active_input > 0) {
             if (st->input_cursor < len) st->input_cursor++;
             return true;
         }
-        if (e->key.keysym.sym == SDLK_HOME && st->active_input > 0) {
+        if (e->key.key == SDLK_HOME && st->active_input > 0) {
             st->input_cursor = 0;
             return true;
         }
-        if (e->key.keysym.sym == SDLK_END && st->active_input > 0) {
+        if (e->key.key == SDLK_END && st->active_input > 0) {
             st->input_cursor = len;
             return true;
         }
 
         /* Confirm / cancel input */
-        if (e->key.keysym.sym == SDLK_RETURN || e->key.keysym.sym == SDLK_ESCAPE) {
+        if (e->key.key == SDLK_RETURN || e->key.key == SDLK_ESCAPE) {
             st->active_input = 0;
-            SDL_StopTextInput();
+            SDL_StopTextInput(st->window);
             return true;
         }
     }

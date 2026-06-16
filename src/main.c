@@ -16,7 +16,7 @@
 #include <sys/time.h>   /* gettimeofday */
 #include <unistd.h>     /* usleep, 其他POSIX函数 */
 #include <pthread.h>    /* 多线程（发送/接收工作线程） */
-#include <SDL2/SDL.h>   /* SDL2图形库 */
+#include <SDL3/SDL.h>   /* SDL2图形库 */
 
 /* ═══════════════════════════════════════════════════════════
    传输线程包装器（Transfer thread wrappers）
@@ -314,31 +314,30 @@ int main(int argc, char **argv)
 
     /* ── GUI mode init ── */
 
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        log_write("SDL_Init: %s\n", SDL_GetError());
+    if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) {
+        log_write("SDL_InitSubSystem: %s\n", SDL_GetError());
         return 1;
     }
 
-    /* 创建窗口 */
+    /* 创建窗口 — SDL3: 移除 x,y 参数, SDL_WINDOW_SHOWN/SDL_WINDOWPOS_UNDEFINED 已删除 */
     SDL_Window *window = SDL_CreateWindow(
         "LAN File Transfer",
-        SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
         800, 600,
-        SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
+        SDL_WINDOW_RESIZABLE);
     if (!window) {
         log_write("SDL_CreateWindow: %s\n", SDL_GetError());
         SDL_Quit();
         return 1;
     }
 
-    /* 创建渲染器 */
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1,
-        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    /* 创建渲染器 — SDL3: 移除 index/flags 参数，加速始终开启 */
+    SDL_Renderer *renderer = SDL_CreateRenderer(window, NULL);
     if (!renderer) {
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 1;
     }
+    SDL_SetRenderVSync(renderer, true);
 
     /* 初始化UI模块（加载字体、创建纹理等） */
     if (ui_init() != 0) {
@@ -355,6 +354,7 @@ int main(int argc, char **argv)
     /* 初始化应用状态结构体 */
     struct app_state state;
     memset(&state, 0, sizeof(state));
+    state.window = window;  /* SDL3: 窗口指针供 TextInput 函数使用 */
     history_load(&state);                     /* 加载传输历史记录 */
     state.current_tab = TAB_SCAN;             /* 默认显示扫描标签页 */
     state.selected_device = -1;
@@ -400,18 +400,17 @@ int main(int argc, char **argv)
         /* 处理所有待处理的SDL事件 */
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT:
+            case SDL_EVENT_QUIT:
                 running = false;
                 break;
 
-            case SDL_WINDOWEVENT:
-                if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
-                    state.window_w = event.window.data1;
-                    state.window_h = event.window.data2;
-                }
+            /* SDL3: SDL_WINDOWEVENT 已移除，窗口大小变更为独立事件类型 */
+            case SDL_EVENT_WINDOW_RESIZED:
+                state.window_w = event.window.data1;
+                state.window_h = event.window.data2;
                 break;
 
-            case SDL_MOUSEWHEEL:
+            case SDL_EVENT_MOUSE_WHEEL:
                 /* Scroll content on tabs that overflow */
                 if (event.wheel.y != 0) {
                     state.scroll_offset += event.wheel.y * 30;
@@ -424,8 +423,8 @@ int main(int argc, char **argv)
                 }
                 break;
 
-            case SDL_KEYDOWN:
-                if (event.key.keysym.sym == SDLK_ESCAPE) {
+            case SDL_EVENT_KEY_DOWN:
+                if (event.key.key == SDLK_ESCAPE) {
                     /* ESC键行为：
                        - 如果模态对话框可见，关闭它
                        - 否则如果有活动传输，则取消传输
@@ -443,7 +442,7 @@ int main(int argc, char **argv)
                         strncpy(state.status_text, "Transfer stopped", sizeof(state.status_text) - 1);
                     } else {
                         state.active_input = 0;
-                        SDL_StopTextInput();
+                        SDL_StopTextInput(state.window);
                     }
                     break;
                 }

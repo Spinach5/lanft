@@ -19,7 +19,7 @@
 #endif
 
 #ifdef BUILD_GUI
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #endif
 
 #define SCANNER_THREADS 32
@@ -157,7 +157,7 @@ static void *scan_ip_thread(void *arg)
 
                 SDL_Event event;
                 SDL_memset(&event, 0, sizeof(event));
-                event.type = SDL_USEREVENT + 1;
+                event.type = SDL_EVENT_USER + 1;
                 event.user.data1 = evt;
                 SDL_PushEvent(&event);
             }
@@ -199,7 +199,7 @@ static void scanner_run(uint16_t port)
                  "Cannot determine local subnets");
         SDL_Event event;
         SDL_memset(&event, 0, sizeof(event));
-        event.type = SDL_USEREVENT + 5;
+        event.type = SDL_EVENT_USER + 5;
         event.user.data1 = err;
         SDL_PushEvent(&event);
         return;
@@ -252,7 +252,7 @@ static void scanner_run(uint16_t port)
 
             SDL_Event event;
             SDL_memset(&event, 0, sizeof(event));
-            event.type = SDL_USEREVENT + 1;
+            event.type = SDL_EVENT_USER + 1;
             event.user.data1 = evt;
             SDL_PushEvent(&event);
         }
@@ -271,7 +271,7 @@ static void scanner_run(uint16_t port)
 
     SDL_Event event;
     SDL_memset(&event, 0, sizeof(event));
-    event.type = SDL_USEREVENT + 2;
+    event.type = SDL_EVENT_USER + 2;
     event.user.data1 = done;
     SDL_PushEvent(&event);
 }

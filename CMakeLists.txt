@@ -4,7 +4,7 @@ project(lanft C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-option(BUILD_GUI "Build with SDL2 GUI (requires SDL2)" ON)
+option(BUILD_GUI "Build with SDL3 GUI (requires SDL3)" ON)
 
 # ── 检测 Conan 环境 ──────────────────────────────────
 if(EXISTS "${CMAKE_BINARY_DIR}/conan_toolchain.cmake")
@@ -17,20 +17,25 @@ endif()
 # ── 查找依赖（Conan 提供路径，否则走 pkg-config） ──
 find_package(PkgConfig QUIET)
 
-if(WIN32)
-    if(DEFINED ENV{VCPKG_ROOT})
-        set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "vcpkg toolchain")
-    endif()
-    if(MINGW)
-        file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/temp")
-        set(ENV{TMPDIR} "${CMAKE_BINARY_DIR}/temp")
-        add_compile_options(-pipe)
-    endif()
-    pkg_check_modules(LIBWEBSOCKETS libwebsockets)
-    pkg_check_modules(LIBARCHIVE libarchive)
+if(CONAN_MANAGED)
+    find_package(Libwebsockets REQUIRED)
+    find_package(LibArchive REQUIRED)
 else()
-    pkg_check_modules(LIBWEBSOCKETS REQUIRED libwebsockets)
-    pkg_check_modules(LIBARCHIVE REQUIRED libarchive)
+    if(WIN32)
+        if(DEFINED ENV{VCPKG_ROOT})
+            set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "vcpkg toolchain")
+        endif()
+        if(MINGW)
+            file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/temp")
+            set(ENV{TMPDIR} "${CMAKE_BINARY_DIR}/temp")
+            add_compile_options(-pipe)
+        endif()
+        pkg_check_modules(LIBWEBSOCKETS libwebsockets)
+        pkg_check_modules(LIBARCHIVE libarchive)
+    else()
+        pkg_check_modules(LIBWEBSOCKETS REQUIRED libwebsockets)
+        pkg_check_modules(LIBARCHIVE REQUIRED libarchive)
+    endif()
 endif()
 
 find_package(Threads REQUIRED)
@@ -47,30 +52,33 @@ set(SOURCES
 )
 
 if(BUILD_GUI)
-    message(STATUS "Building with SDL2 GUI")
-    # 优先 CONFIG 模式（Conan），再回退到系统
-    find_package(SDL2 CONFIG QUIET)
-    if(NOT SDL2_FOUND)
-        find_package(SDL2 REQUIRED)
+    message(STATUS "Building with SDL3 GUI")
+    if(CONAN_MANAGED)
+        find_package(SDL3 REQUIRED)
+    else()
+        find_package(SDL3 CONFIG QUIET)
+        if(NOT SDL3_FOUND)
+            find_package(SDL3 REQUIRED)
+        endif()
     endif()
 
-    pkg_check_modules(SDL2_TTF SDL2_ttf)
-    if(SDL2_TTF_FOUND)
-        message(STATUS "  SDL2_ttf found — system font enabled")
-        add_definitions(-DHAVE_SDL2_TTF)
+    pkg_check_modules(SDL3_TTF SDL3_ttf)
+    if(SDL3_TTF_FOUND)
+        message(STATUS "  SDL3_ttf found — system font enabled")
+        add_definitions(-DHAVE_SDL3_TTF)
     else()
-        message(STATUS "  SDL2_ttf not found — falling back to built-in 8x16 bitmap font (ASCII only)")
+        message(STATUS "  SDL3_ttf not found — falling back to built-in 8x16 bitmap font (ASCII only)")
     endif()
 
     if(WIN32 AND NOT MSVC)
-        set_property(TARGET SDL2::SDL2main PROPERTY INTERFACE_LINK_LIBRARIES
+        set_property(TARGET SDL3::SDL3 PROPERTY INTERFACE_LINK_LIBRARIES
             "-lshell32" "$<\$<STREQUAL:\$<TARGET_PROPERTY:TYPE>,EXECUTABLE>:-Wl,--undefined=WinMain>")
     endif()
 
     list(APPEND SOURCES src/main.c src/scanner.c src/ui.c)
     add_definitions(-DBUILD_GUI)
 else()
-    message(STATUS "Building CLI-only (no SDL2)")
+    message(STATUS "Building CLI-only (no SDL3)")
     list(APPEND SOURCES src/main_cli.c)
 endif()
 
@@ -84,29 +92,43 @@ endif()
 
 # ── 包含目录 ────────────────────────────────────────
 target_include_directories(lanft PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_include_directories(lanft PRIVATE
-    ${LIBWEBSOCKETS_INCLUDE_DIRS}
-    ${LIBARCHIVE_INCLUDE_DIRS}
-)
-
-if(BUILD_GUI)
-    target_include_directories(lanft PRIVATE ${SDL2_INCLUDE_DIRS})
-    if(SDL2_TTF_FOUND)
-        target_include_directories(lanft PRIVATE ${SDL2_TTF_INCLUDE_DIRS})
+if(NOT CONAN_MANAGED)
+    target_include_directories(lanft PRIVATE
+        ${LIBWEBSOCKETS_INCLUDE_DIRS}
+        ${LIBARCHIVE_INCLUDE_DIRS}
+    )
+endif()
+if(BUILD_GUI AND NOT CONAN_MANAGED)
+    target_include_directories(lanft PRIVATE ${SDL3_INCLUDE_DIRS})
+    if(SDL3_TTF_FOUND)
+        target_include_directories(lanft PRIVATE ${SDL3_TTF_INCLUDE_DIRS})
     endif()
 endif()
 
 # ── 链接库 ──────────────────────────────────────────
-target_link_libraries(lanft
-    ${LIBWEBSOCKETS_LDFLAGS}
-    ${LIBARCHIVE_LDFLAGS}
-    Threads::Threads
-)
-
-if(BUILD_GUI)
-    target_link_libraries(lanft ${SDL2_LIBRARIES})
-    if(SDL2_TTF_FOUND)
-        target_link_libraries(lanft ${SDL2_TTF_LDFLAGS})
+if(CONAN_MANAGED)
+    target_link_libraries(lanft
+        websockets
+        LibArchive::LibArchive
+        Threads::Threads
+    )
+    if(BUILD_GUI)
+        target_link_libraries(lanft sdl::sdl)
+        if(SDL3_TTF_FOUND)
+            target_link_libraries(lanft ${SDL3_TTF_LDFLAGS})
+        endif()
+    endif()
+else()
+    target_link_libraries(lanft
+        ${LIBWEBSOCKETS_LDFLAGS}
+        ${LIBARCHIVE_LDFLAGS}
+        Threads::Threads
+    )
+    if(BUILD_GUI)
+        target_link_libraries(lanft ${SDL3_LIBRARIES})
+        if(SDL3_TTF_FOUND)
+            target_link_libraries(lanft ${SDL3_TTF_LDFLAGS})
+        endif()
     endif()
 endif()
 
