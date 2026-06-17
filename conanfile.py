@@ -9,7 +9,7 @@ class MyProject(ConanFile):
     def requirements(self):
         # 始终需要的依赖
         self.requires("libwebsockets/4.5.8")
-        self.requires("libarchive/3.8.7")
+        self.requires("libarchive/3.7.9")
 
         # 条件依赖：仅在非 Termux 环境下添加 SDL3
         # 判断依据：如果 os 是 Linux 且 arch 是 armv8，则认为是 Termux（Android）环境
