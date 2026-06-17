@@ -470,24 +470,19 @@ static int tcp_send_file(struct net_context *nc, const char *filepath,
 static void tcp_recv_file(struct net_context *nc, const char *savepath)
 {
     socket_t fd = net_get_fd(nc);
-    log_write("[RECV] tcp_recv_file: fd=%d, save=%s\n", fd, savepath);
-    if (fd < 0) { log_write("[RECV] BAD FD!\n"); push_error("No socket"); return; }
+    fprintf(stderr, "[RECV] tcp_recv_file: fd=%d\n", fd);
+    if (fd < 0) { fprintf(stderr, "[RECV] BAD FD!\n"); push_error("No socket"); return; }
 
-    /* Read meta — use a short initial timeout to filter out scanner probes.
-       Scanners connect and immediately close without sending data, which
-       causes select() to signal readability (EOF) within milliseconds. */
-    log_write("[RECV] waiting for meta...\n");
+    fprintf(stderr, "[RECV] waiting for meta (timeout=%ds)...\n",
+            g_timeout_seconds > 0 ? g_timeout_seconds : 120);
     struct ft_meta meta;
-    /* Use configured timeout. Scanner probes close immediately (EOF in μs).
-       Slow senders (e.g. compressing large dirs) get the full timeout. */
     int meta_timeout_ms = (g_timeout_seconds > 0) ? g_timeout_seconds * 1000 : 120000;
     if (sock_read_full(fd, &meta, sizeof(meta), meta_timeout_ms) != 0) {
-        log_write("[RECV] no meta in %dms, likely scanner probe — ignoring\n",
-                  meta_timeout_ms);
+        fprintf(stderr, "[RECV] no meta in %dms\n", meta_timeout_ms);
         return;
     }
-    log_write("[RECV] got meta: name=%s, size=%lu, flags=%d\n",
-            meta.filename, (unsigned long)meta.total_size, meta.flags);
+    fprintf(stderr, "[RECV] got meta: %s (%lu bytes)\n",
+            meta.filename, (unsigned long)meta.total_size);
 
     if (meta.magic != FT_MAGIC) {
         push_error("Protocol mismatch — bad magic bytes");
@@ -539,12 +534,13 @@ static void tcp_recv_file(struct net_context *nc, const char *savepath)
         memset(&resp, 0, sizeof(resp));
         resp.magic = FT_MAGIC;
         resp.resume_offset = resume_offset;
+        fprintf(stderr, "[RECV] sending meta response...\n");
         if (sock_write_full(fd, &resp, sizeof(resp)) != 0) {
+            fprintf(stderr, "[RECV] FAILED to send meta response\n");
             push_error("Failed to send meta response");
             return;
         }
-        log_write("[RECV] meta response sent, resume_offset=%lu\n",
-                (unsigned long)resume_offset);
+        fprintf(stderr, "[RECV] meta response sent, starting data recv...\n");
     }
 
     log_write("[RECV] ready for data, total=%lu, is_dir=%d\n",
@@ -951,16 +947,16 @@ void transfer_recv(struct net_context *nc, const char *savepath, int protocol)
         log_write("[RECV] waiting for sender (net_accept)...\n");
         int ar = net_accept(nc);
         if (ar == -2) {
-            log_write("[RECV] net_accept cancelled\n");
+            fprintf(stderr, "[RECV] net_accept cancelled\n");
             push_xfer_done();
             return;
         }
         if (ar != 0) {
-            log_write("[RECV] net_accept FAILED\n");
+            fprintf(stderr, "[RECV] net_accept FAILED (ar=%d)\n", ar);
             push_error("Failed to accept sender connection");
             return;
         }
-        log_write("[RECV] sender connected, fd=%d, starting receive...\n", net_get_fd(nc));
+        fprintf(stderr, "[RECV] accepted, fd=%d\n", net_get_fd(nc));
         tcp_recv_file(nc, savepath);
         log_write("[RECV] tcp_recv_file returned\n");
     } else {
