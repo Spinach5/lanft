@@ -17,6 +17,7 @@ class MyProject(ConanFile):
 
         if not is_termux:
             self.requires("sdl/3.4.8")  # 桌面环境用 Conan 管理 SDL3
+            self.requires("sdl_ttf/3.2.2")
         # Termux 下不添加 SDL3，由系统包管理器（pkg）提供
 
     # 3. 可选：为不同平台生成额外的配置信息

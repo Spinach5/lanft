@@ -12,7 +12,7 @@
 #include <pthread.h>
 #include <SDL3/SDL.h>
 #ifdef HAVE_SDL3_TTF
-#include <SDL3/SDL_ttf.h>
+#include <SDL3_ttf/SDL_ttf.h>
 #endif
 
 /* ── Font system ──────────────────────────────────────────────── */
@@ -316,14 +316,15 @@ int ui_init(void)
 {
     memset(glyph_tex, 0, sizeof(glyph_tex));
 #ifdef HAVE_SDL3_TTF
-    if (TTF_Init() == 0) {
+    /* SDL3_ttf: TTF_Init 返回 bool（true=成功） */
+    if (TTF_Init()) {
         char *font_path = find_system_font();
         if (font_path) {
             ttf_font = TTF_OpenFont(font_path, ttf_ptsize);
             if (ttf_font) {
                 log_write("[ui] loaded system font: %s (%dpt)\n", font_path, ttf_ptsize);
             } else {
-                log_write("[ui] TTF_OpenFont failed: %s\n", TTF_GetError());
+                log_write("[ui] TTF_OpenFont failed: %s\n", SDL_GetError());
             }
             free(font_path);
         } else {
@@ -331,7 +332,7 @@ int ui_init(void)
         }
         if (!ttf_font) TTF_Quit();  /* no usable font, shutdown TTF */
     } else {
-        log_write("[ui] TTF_Init failed: %s\n", TTF_GetError());
+        log_write("[ui] TTF_Init failed: %s\n", SDL_GetError());
     }
 #endif
     return 0;
@@ -400,7 +401,8 @@ void ui_draw_text(SDL_Renderer *r, const char *text, int x, int y, SDL_Color c)
         int tw, th;
         SDL_Texture *tex = find_cached_tex(r, text, c, &tw, &th);
         if (!tex) {
-            SDL_Surface *surf = TTF_RenderUTF8_Blended(ttf_font, text, c);
+            /* SDL3_ttf: TTF_RenderText_Blended, length=0 表示 nul-terminated */
+            SDL_Surface *surf = TTF_RenderText_Blended(ttf_font, text, 0, c);
             if (surf) {
                 tex = SDL_CreateTextureFromSurface(r, surf);
                 if (tex) { cache_tex(text, c, tex, surf->w, surf->h); tw = surf->w; th = surf->h; }
@@ -438,7 +440,8 @@ void ui_text_size(const char *text, int *w, int *h)
 #ifdef HAVE_SDL3_TTF
     if (ttf_font && text && text[0]) {
         int tw, th;
-        if (TTF_SizeUTF8(ttf_font, text, &tw, &th) == 0) {
+        /* SDL3_ttf: TTF_GetStringSize 替代 TTF_SizeUTF8, 返回 bool */
+        if (TTF_GetStringSize(ttf_font, text, 0, &tw, &th)) {
             if (w) *w = tw;
             if (h) *h = th;
             return;
