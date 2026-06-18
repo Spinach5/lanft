@@ -2,6 +2,19 @@
 #ifndef COMPAT_H
 #define COMPAT_H
 
+#if defined(_WIN32) || defined(_WIN64)
+/* ── Prevent winsock.h / winsock2.h conflict ────────── */
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#define _WINSOCKAPI_          /* prevent windows.h from including winsock.h */
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <io.h>
+#include <process.h>
+#endif /* _WIN32 */
+
 /* ── pthread (MSVC→Win32 wrappers, others→<pthread.h>) ── */
 #include "compat_threads.h"
 
@@ -12,12 +25,6 @@
 #include "compat_getopt.h"
 #endif
 /* ── Windows ──────────────────────────────────────────────── */
-#define WIN32_LEAN_AND_MEAN
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <windows.h>
-#include <io.h>
-#include <process.h>
 #ifdef __GNUC__
 /* MinGW/MSYS2 provides POSIX headers */
 #include <unistd.h>
@@ -140,9 +147,16 @@ static inline ssize_t sock_read(socket_t fd, void *buf, size_t len) {
     return (ssize_t)recv(fd, (char *)buf, (int)len, 0);
 }
 
-/* Missing POSIX types (MSVC only — MinGW provides them) */
+/* Missing POSIX types and macros (MSVC only — MinGW provides them) */
 #ifndef __GNUC__
 #define ssize_t SSIZE_T
+#define strdup  _strdup
+#ifndef S_ISDIR
+#define S_ISDIR(m)  (((m) & _S_IFMT) == _S_IFDIR)
+#endif
+#ifndef S_ISREG
+#define S_ISREG(m)  (((m) & _S_IFMT) == _S_IFREG)
+#endif
 #endif
 
 #else

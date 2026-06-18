@@ -61,6 +61,7 @@ set(SOURCES
 if(MSVC)
     list(APPEND SOURCES src/compat_getopt.c)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+    add_compile_options(/experimental:c11atomics)
 endif()
 
 if(BUILD_GUI)
