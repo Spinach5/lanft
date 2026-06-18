@@ -58,6 +58,11 @@ set(SOURCES
     src/tomlc17/tomlc17.c
 )
 
+if(MSVC)
+    list(APPEND SOURCES src/compat_getopt.c)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+endif()
+
 if(BUILD_GUI)
     message(STATUS "Building with SDL3 GUI")
 
@@ -129,7 +134,7 @@ else()
 endif()
 
 if(WIN32)
-    target_link_libraries(lanft -lws2_32 -liphlpapi -lshell32 -lcomdlg32 -lole32)
+    target_link_libraries(lanft ws2_32 iphlpapi shell32 comdlg32 ole32)
     if(MINGW)
         target_link_options(lanft PRIVATE -static-libgcc -static-libstdc++)
     endif()

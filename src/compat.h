@@ -3,6 +3,14 @@
 #define COMPAT_H
 
 #if defined(_WIN32) || defined(_WIN64)
+
+/* ── pthread → Win32 (MSVC) ──────────────────────────── */
+#include "compat_threads.h"
+
+/* ── getopt_long (MSVC) ───────────────────────────────── */
+#ifndef __GNUC__
+#include "compat_getopt.h"
+#endif
 /* ── Windows ──────────────────────────────────────────────── */
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
@@ -74,14 +82,19 @@ static inline int compat_gettimeofday(struct timeval *tv, void *tz) {
 #define gettimeofday compat_gettimeofday
 #endif
 
-/* No getopt_long on MSVC — use a simple shim for MinGW; MSVC needs replacement */
+/* ── MSVC: POSIX name mappings (continued) ────────────── */
 #ifndef __GNUC__
-/* MSVC: minimal getopt replacement */
-extern int optind;
-extern char *optarg;
-int getopt(int argc, char *const argv[], const char *optstring);
-#else
-/* MinGW has getopt_long */
+#define getpid()          GetCurrentProcessId()
+#define open              _open
+#define close_file(fd)    _close(fd)
+#define O_WRONLY          _O_WRONLY
+#define O_CREAT           _O_CREAT
+#define O_TRUNC           _O_TRUNC
+#define O_RDONLY          _O_RDONLY
+#endif
+
+/* ── getopt ───────────────────────────────────────────── */
+#ifdef __GNUC__
 #include <getopt.h>
 #endif
 

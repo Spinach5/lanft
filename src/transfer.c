@@ -267,6 +267,29 @@ static int add_to_archive(struct archive *a, const char *disk_path, const char *
 
 static void walk_and_add(struct archive *a, const char *disk_base, const char *arc_base)
 {
+#ifdef _WIN32
+    /* Win32: use FindFirstFile/FindNextFile (MSVC & MinGW) */
+    char pattern[1280];
+    snprintf(pattern, sizeof(pattern), "%s/*", disk_base);
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+        char full_disk[1280], full_arc[1280];
+        snprintf(full_disk, sizeof(full_disk), "%s/%s", disk_base, fd.cFileName);
+        snprintf(full_arc, sizeof(full_arc), "%s/%s", arc_base, fd.cFileName);
+
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            walk_and_add(a, full_disk, full_arc);
+        } else {
+            struct stat st;
+            if (stat(full_disk, &st) == 0)
+                add_to_archive(a, full_disk, full_arc);
+        }
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+#else
     DIR *d = opendir(disk_base);
     if (!d) return;
 
@@ -287,6 +310,7 @@ static void walk_and_add(struct archive *a, const char *disk_base, const char *a
         }
     }
     closedir(d);
+#endif
 }
 
 static void get_tmp_path(char *buf, size_t bufsz)
@@ -351,15 +375,15 @@ static int extract_archive(const char *arc_path, const char *dest_dir)
         char *slash = strrchr(path, '/');
         if (slash) { *slash = '\0'; mkdir(path, 0755); /* best effort */ *slash = '/'; }
 
-        int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (fd >= 0) {
+        FILE *fp = fopen(path, "wb");
+        if (fp) {
             const void *buf;
             size_t size;
             int64_t offset;
             while ((ret = archive_read_data_block(a, &buf, &size, &offset)) == ARCHIVE_OK) {
-                write(fd, buf, size);
+                fwrite(buf, 1, size, fp);
             }
-            close(fd);
+            fclose(fp);
         }
     }
     archive_read_free(a);
